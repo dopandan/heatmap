@@ -5,9 +5,27 @@
 @inject IJSRuntime JS
 
 <div class="heatmap-root">
+
+    @* Heatmap Legend *@
+    <div class="heatmap-legend">
+        <div class="heatmap-legend-title">Heatmap Legend</div>
+        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(255, 0, 0);"></div> &ge; 600</div>
+        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(255, 165, 0);"></div> 500 - 599</div>
+        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(255, 255, 0);"></div> 400 - 499</div>
+        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 255, 0);"></div> 300 - 399</div>
+        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 255, 255);"></div> 200 - 299</div>
+        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 0, 255);"></div> 100 - 199</div>
+        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 0, 139);"></div> &lt; 100</div>
+    </div>
     
     @* Y-Axis *@
     <svg class="heatmap-y-axis" viewBox="0 0 @YAxisWidth @Math.Max(_plotHeight, 1)" preserveAspectRatio="none">
+        @{
+            // Calculate exact vertical center for the rotation pivot
+            var yCenterStr = (Math.Max(_plotHeight, 1) / 2.0).ToString(CultureInfo.InvariantCulture);
+        }
+        <text class="heatmap-title" x="@YAxisTitleOffset" y="@yCenterStr" transform="rotate(-90, @YAxisTitleOffset, @yCenterStr)" text-anchor="middle">Batch Number</text>
+
         @foreach (var tick in _yTicks)
         {
             <line class="heatmap-tick" x1="@(YAxisWidth - TickLength)" y1="@tick.Position" x2="@YAxisWidth" y2="@tick.Position" />
@@ -20,6 +38,8 @@
 
     @* X-Axis *@
     <svg class="heatmap-x-axis" viewBox="0 0 @Math.Max(_plotWidth, 1) @XAxisHeight" preserveAspectRatio="none">
+        <text class="heatmap-title" x="50%" y="@XAxisTitleOffset" text-anchor="middle">Batch Index</text>
+
         @foreach (var tick in _xTicks)
         {
             <line class="heatmap-tick" x1="@tick.Position" y1="0" x2="@tick.Position" y2="@TickLength" />
@@ -31,14 +51,18 @@
 
 <style>
     .heatmap-root {
-        display: grid;
-        /* Layout driven by C# constants to ensure SVG and Grid stay perfectly synced */
-        grid-template-columns: @(YAxisWidth)px minmax(0, 1fr);
-        grid-template-rows: minmax(0, 1fr) @(XAxisHeight)px;
-        width: 100%;
-        height: 100%;
-        color: #6b7280;
-    }
+            display: grid;
+            grid-template-columns: @(YAxisWidth)px minmax(0, 1fr) max-content;
+            grid-template-rows: minmax(0, 1fr) @(XAxisHeight)px;
+            width: 100%;
+            height: 100%;
+            color: #6b7280;
+            box-sizing: border-box;
+            padding: 16px; 
+            background-color: blue; 
+            border: 1px solid #e5e7eb; 
+            border-radius: 8px; 
+        }
 
     .heatmap-y-axis {
         grid-column: 1;
@@ -77,12 +101,56 @@
         stroke-width: 1;
         shape-rendering: crispEdges;
     }
+
+    .heatmap-title {
+        font-size: 14px;
+        font-weight: 600;
+        fill: currentColor;
+        user-select: none;
+    }
+
+    .heatmap-legend {
+        grid-column: 3;
+        grid-row: 1 / span 2;
+        place-self: stretch stretch; 
+        border-radius: 0 8px 8px 0;     
+        padding: 16px;
+        background-color: #f9fafb;
+        border-left: 1px solid #e5e7eb;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .heatmap-legend-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 4px;
+        text-align: center;
+        user-select: none;
+    }
+
+    .heatmap-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 11px;
+        color: #4b5563;
+        user-select: none;
+    }
+
+    .heatmap-legend-color {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        flex-shrink: 0;
+        border: 1px solid rgba(0, 0, 0, 0.15); 
+    }
 </style>
 
 <script>
     window.HeatMap ??= (function () {
-        // WeakMap prevents memory leaks by not mutating the DOM node directly.
-        // When the canvas is destroyed, the observer is automatically garbage collected.
         const observers = new WeakMap();
 
         return {
@@ -93,7 +161,7 @@
                 const observer = new ResizeObserver(e => {
                     const { width, height } = e[0].contentRect;
                     if (width && height) {
-                        dotNetRef.invokeMethodAsync("OnPlotSizeChanged", width, height);
+                        dotNetRef.invokeMethodAsync("OnPlotSizeChanged", Math.round(width), Math.round(height));
                     }
                 });
                 
@@ -131,11 +199,13 @@
 
 @code {
     // --- Layout Constants ---
-    private const int YAxisWidth = 56;
-    private const int XAxisHeight = 32;
+    private const int YAxisWidth = 76;      
+    private const int XAxisHeight = 52;      
     private const int TickLength = 6;
-    private const int YAxisTextOffset = 48; 
-    private const int XAxisTextOffset = 24; 
+    private const int YAxisTextOffset = 68;  
+    private const int XAxisTextOffset = 24;  
+    private const int XAxisTitleOffset = 48; 
+    private const int YAxisTitleOffset = 16; 
     
     private const int XAxisTargetSpacing = 110;
     private const int YAxisTargetSpacing = 75;
@@ -261,29 +331,42 @@
     }
 
     /// <summary>
-    /// Generates a list of ticks distributed evenly across the domain, ensuring they land on clean intervals.
+    /// Generates a list of ticks distributed evenly across the domain.
+    /// It anchors at 1, steps by a clean interval (e.g., 10, 20, 30), and guarantees the final domainEnd tick.
     /// </summary>
     private static List<AxisTick> BuildTicks(int domainEnd, int pixelLength, int targetSpacing)
     {
         if (domainEnd <= 1) 
             return [new(1, 0)];
 
-        var interval = GetCleanInterval((domainEnd - 1.0) / Math.Max(1, pixelLength / targetSpacing));
-        var minSpacing = targetSpacing;
+        // 1. Determine the ideal step size based on available pixels
+        var exactInterval = (domainEnd - 1.0) / Math.Max(1.0, (double)pixelLength / targetSpacing);
+        var interval = GetCleanInterval(exactInterval);
+
         var ticks = new List<AxisTick> { new(1, 0) };
 
-        for (var val = interval; val < domainEnd; val += interval)
+        // 2. Minimum pixel distance required to prevent text from physically overlapping.
+        // We use a fixed 30px buffer instead of targetSpacing so we don't drop valid ticks unnecessarily.
+        const double MinOverlapBuffer = 30.0;
+
+        // 3. Find the first clean multiple (e.g., if interval is 10, start at 10, not 11)
+        // Integer division safely truncates, ensuring we always start strictly greater than 1.
+        var startVal = (1 / interval + 1) * interval;
+
+        for (var val = startVal; val < domainEnd; val += interval)
         {
             var pos = (val - 1.0) * pixelLength / (domainEnd - 1);
             
-            // Only add the tick if it isn't too close to the start or end boundaries
-            if (pos >= minSpacing && pixelLength - pos >= minSpacing)
+            // Only drop the tick if it physically collides with the first (1) or last (domainEnd) label
+            if (pos >= MinOverlapBuffer && (pixelLength - pos) >= MinOverlapBuffer)
             {
                 ticks.Add(new(val, pos));
             }
         }
 
+        // Always add the final tick
         ticks.Add(new(domainEnd, pixelLength));
+        
         return ticks;
     }
 
