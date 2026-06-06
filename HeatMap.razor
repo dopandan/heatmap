@@ -1,0 +1,217 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<canvas @ref="_canvas" class="ll-heatmap-canvas"></canvas>
+
+<style>
+    .ll-heatmap-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+</style>
+
+<script>
+    window.llHeatMap ??= {
+        init(canvas) {
+            // Store the full-resolution heat map separately from the visible canvas.
+            canvas._source = document.createElement("canvas");
+            canvas._sourceContext = canvas._source.getContext("2d", { alpha: false });
+
+            canvas._context = canvas.getContext("2d", {
+                alpha: false,
+                desynchronized: true
+            });
+
+            // Redraw when the parent container changes size.
+            canvas._observer = new ResizeObserver(() => {
+                window.llHeatMap.draw(canvas);
+            });
+
+            canvas._observer.observe(canvas.parentElement);
+        },
+
+        setData(canvas, width, height, pixels) {
+            canvas._source.width = width;
+            canvas._source.height = height;
+
+            const imageData = new ImageData(
+                new Uint8ClampedArray(pixels),
+                width,
+                height
+            );
+
+            canvas._sourceContext.putImageData(imageData, 0, 0);
+
+            window.llHeatMap.draw(canvas);
+        },
+
+        draw(canvas) {
+            const parent = canvas.parentElement;
+
+            const cssWidth = parent.clientWidth;
+            const cssHeight = parent.clientHeight;
+            const devicePixelRatio = window.devicePixelRatio || 1;
+
+            // Match the backing resolution to the display resolution for high-DPI screens.
+            canvas.width = Math.round(cssWidth * devicePixelRatio);
+            canvas.height = Math.round(cssHeight * devicePixelRatio);
+
+            canvas._context.imageSmoothingEnabled = true;
+            canvas._context.imageSmoothingQuality = "high";
+
+            canvas._context.drawImage(
+                canvas._source,
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            );
+        },
+
+        dispose(canvas) {
+            canvas._observer?.disconnect();
+        }
+    };
+</script>
+
+@code {
+    /// <summary>
+    /// Fixed number of samples produced per line-laser scan row.
+    /// </summary>
+    private const int HeatMapWidth = 1208;
+
+    /// <summary>
+    /// Number of bytes used to represent one RGBA pixel.
+    /// </summary>
+    private const int BytesPerPixel = 4;
+
+    private ElementReference _canvas;
+    private byte[] _pixels = [];
+    private int _height;
+    private bool _hasPendingData;
+    private bool _isInitialized;
+
+    /// <summary>
+    /// Gets or sets the scan rows used to render the heat map.
+    /// Each row is expected to contain exactly 1208 values.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<IReadOnlyList<double>> Data { get; set; } = [];
+
+    protected override void OnParametersSet()
+    {
+        _height = Data.Count;
+        _pixels = BuildPixels(Data);
+        _hasPendingData = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("llHeatMap.init", _canvas);
+            _isInitialized = true;
+        }
+
+        if (_hasPendingData)
+        {
+            _hasPendingData = false;
+
+            await JS.InvokeVoidAsync(
+                "llHeatMap.setData",
+                _canvas,
+                HeatMapWidth,
+                _height,
+                _pixels);
+        }
+    }
+
+    /// <summary>
+    /// Converts scan data into a contiguous RGBA pixel buffer.
+    /// </summary>
+    private static byte[] BuildPixels(IReadOnlyList<IReadOnlyList<double>> data)
+    {
+        var pixels = new byte[HeatMapWidth * data.Count * BytesPerPixel];
+
+        for (var y = 0; y < data.Count; y++)
+        {
+            var row = data[y];
+
+            for (var x = 0; x < HeatMapWidth; x++)
+            {
+                var offset = ((y * HeatMapWidth) + x) * BytesPerPixel;
+
+                WriteColor(row[x], pixels, offset);
+            }
+        }
+
+        return pixels;
+    }
+
+    /// <summary>
+    /// Maps a scan value to a predefined heat-map color band.
+    /// </summary>
+    private static void WriteColor(double value, byte[] pixels, int offset)
+    {
+        if (value < 100)
+        {
+            WritePixel(pixels, offset, 0, 0, 139);
+        }
+        else if (value < 200)
+        {
+            WritePixel(pixels, offset, 0, 0, 255);
+        }
+        else if (value < 300)
+        {
+            WritePixel(pixels, offset, 0, 255, 255);
+        }
+        else if (value < 400)
+        {
+            WritePixel(pixels, offset, 0, 255, 0);
+        }
+        else if (value < 500)
+        {
+            WritePixel(pixels, offset, 255, 255, 0);
+        }
+        else if (value < 600)
+        {
+            WritePixel(pixels, offset, 255, 165, 0);
+        }
+        else
+        {
+            WritePixel(pixels, offset, 255, 0, 0);
+        }
+    }
+
+    /// <summary>
+    /// Writes a single opaque RGBA pixel into the destination buffer.
+    /// </summary>
+    private static void WritePixel(byte[] pixels, int offset, byte red, byte green, byte blue)
+    {
+        pixels[offset + 0] = red;
+        pixels[offset + 1] = green;
+        pixels[offset + 2] = blue;
+        pixels[offset + 3] = 255;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_isInitialized)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("llHeatMap.dispose", _canvas);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}
