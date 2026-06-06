@@ -21,7 +21,6 @@
     @* Y-Axis *@
     <svg class="heatmap-y-axis" viewBox="0 0 @YAxisWidth @Math.Max(_plotHeight, 1)" preserveAspectRatio="none">
         @{
-            // Calculate exact vertical center for the rotation pivot
             var yCenterStr = (Math.Max(_plotHeight, 1) / 2.0).ToString(CultureInfo.InvariantCulture);
         }
         <text class="heatmap-title" x="@YAxisTitleOffset" y="@yCenterStr" transform="rotate(-90, @YAxisTitleOffset, @yCenterStr)" text-anchor="middle">Batch Number</text>
@@ -29,7 +28,9 @@
         @foreach (var tick in _yTicks)
         {
             <line class="heatmap-tick" x1="@(YAxisWidth - TickLength)" y1="@tick.Position" x2="@YAxisWidth" y2="@tick.Position" />
-            @RenderSvgText(YAxisTextOffset, tick.Position, "end", "middle", tick.Value)
+            
+            @* FIX: Replaced "middle" with GetYAxisBaseline(tick.Value) *@
+            @RenderSvgText(YAxisTextOffset, tick.Position, "end", GetYAxisBaseline(tick.Value), tick.Value)
         }
     </svg>
 
@@ -336,39 +337,45 @@
     /// </summary>
     private static List<AxisTick> BuildTicks(int domainEnd, int pixelLength, int targetSpacing)
     {
+        // 1. Point to the center of the first cell (0.5)
         if (domainEnd <= 1) 
-            return [new(1, 0)];
+            return [new(1, 0.5 * pixelLength / Math.Max(1, domainEnd))];
 
-        // 1. Determine the ideal step size based on available pixels
         var exactInterval = (domainEnd - 1.0) / Math.Max(1.0, (double)pixelLength / targetSpacing);
         var interval = GetCleanInterval(exactInterval);
 
-        var ticks = new List<AxisTick> { new(1, 0) };
+        // First tick is always 1, pointing to the center of the first cell
+        var ticks = new List<AxisTick> { new(1, 0.5 * pixelLength / domainEnd) };
 
-        // 2. Minimum pixel distance required to prevent text from physically overlapping.
-        // We use a fixed 30px buffer instead of targetSpacing so we don't drop valid ticks unnecessarily.
         const double MinOverlapBuffer = 30.0;
-
-        // 3. Find the first clean multiple (e.g., if interval is 10, start at 10, not 11)
-        // Integer division safely truncates, ensuring we always start strictly greater than 1.
         var startVal = (1 / interval + 1) * interval;
 
         for (var val = startVal; val < domainEnd; val += interval)
         {
-            var pos = (val - 1.0) * pixelLength / (domainEnd - 1);
+            // Map to the center of the cell
+            var pos = (val - 0.5) * pixelLength / domainEnd;
             
-            // Only drop the tick if it physically collides with the first (1) or last (domainEnd) label
             if (pos >= MinOverlapBuffer && (pixelLength - pos) >= MinOverlapBuffer)
             {
                 ticks.Add(new(val, pos));
             }
         }
 
-        // Always add the final tick
-        ticks.Add(new(domainEnd, pixelLength));
+        // Final tick points to the center of the last cell
+        ticks.Add(new(domainEnd, (domainEnd - 0.5) * pixelLength / domainEnd));
         
         return ticks;
     }
+
+    /// <summary>
+    /// Adjusts the SVG dominant-baseline so the first and last Y-axis labels don't clip outside the frame.
+    /// </summary>
+    private string GetYAxisBaseline(int value) => value switch
+    {
+        1 => "hanging",
+        var v when v == DataHeight => "auto",
+        _ => "middle"
+    };
 
     /// <summary>
     /// Rounds a raw interval up to the nearest clean step for readability.
