@@ -1,101 +1,211 @@
+@using System.Globalization
 @using Microsoft.JSInterop
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<canvas @ref="_canvas" class="ll-heatmap-canvas"></canvas>
+<div class="ll-heatmap-root" style="--y-width: @(YAxisWidth)px; --x-height: @(XAxisHeight)px;">
+    
+    <!-- Y-Axis -->
+    <svg class="ll-heatmap-y-axis" viewBox="0 0 @YAxisWidth @Math.Max(_plotHeight, 1)" preserveAspectRatio="none">
+        @foreach (var tick in _yTicks)
+        {
+            <line class="ll-heatmap-tick" 
+                  x1="@(YAxisWidth - 6)" 
+                  y1="@Format(tick.Position)" 
+                  x2="@YAxisWidth" 
+                  y2="@Format(tick.Position)" />
+
+            @RenderSvgText("ll-heatmap-label", YAxisWidth - 8, tick.Position, "end", "middle", tick.Value)
+        }
+    </svg>
+
+    <!-- Plot Area -->
+    <canvas @ref="_canvas" class="ll-heatmap-canvas" role="img" aria-label="Line-laser heat map"></canvas>
+
+    <!-- X-Axis -->
+    <svg class="ll-heatmap-x-axis" viewBox="0 0 @Math.Max(_plotWidth, 1) @XAxisHeight" preserveAspectRatio="none">
+        @foreach (var tick in _xTicks)
+        {
+            <line class="ll-heatmap-tick" 
+                  x1="@Format(tick.Position)" 
+                  y1="0" 
+                  x2="@Format(tick.Position)" 
+                  y2="6" />
+
+            @RenderSvgText("ll-heatmap-label", tick.Position, 24, GetXAxisTextAnchor(tick.Value), "auto", tick.Value)
+        }
+    </svg>
+
+</div>
 
 <style>
+    .ll-heatmap-root {
+        display: grid;
+        grid-template-columns: var(--y-width) minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) var(--x-height);
+        width: 100%;
+        height: 100%;
+        color: #6b7280;
+    }
+
+    .ll-heatmap-y-axis {
+        grid-column: 1;
+        grid-row: 1;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+
     .ll-heatmap-canvas {
+        grid-column: 2;
+        grid-row: 1;
         display: block;
         width: 100%;
         height: 100%;
+        min-width: 0;
+        min-height: 0;
+    }
+
+    .ll-heatmap-x-axis {
+        grid-column: 2;
+        grid-row: 2;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+    }
+
+    .ll-heatmap-label {
+        font-family: "Segoe UI", Arial, sans-serif;
+        font-size: 11px;
+        fill: currentColor;
+        user-select: none;
+    }
+
+    .ll-heatmap-tick {
+        stroke: currentColor;
+        stroke-width: 1;
+        shape-rendering: crispEdges;
     }
 </style>
 
 <script>
     window.llHeatMap ??= {
-        init(canvas) {
-            // Store the full-resolution heat map separately from the visible canvas.
-            canvas._source = document.createElement("canvas");
-            canvas._sourceContext = canvas._source.getContext("2d", { alpha: false });
+        init(canvas, dotNetReference) {
+            const source = document.createElement("canvas");
 
-            canvas._context = canvas.getContext("2d", {
-                alpha: false,
-                desynchronized: true
-            });
+            canvas._llHeatMap = {
+                source: source,
+                sourceContext: source.getContext("2d", { alpha: false }),
+                // desynchronized: true reduces latency by bypassing the standard DOM compositor
+                context: canvas.getContext("2d", { alpha: false, desynchronized: true }),
+                dotNetReference: dotNetReference,
+                observer: new ResizeObserver(() => this.requestDraw(canvas)),
+                frameId: 0,
+                plotWidth: 0,
+                plotHeight: 0
+            };
 
-            // Redraw when the parent container changes size.
-            canvas._observer = new ResizeObserver(() => {
-                window.llHeatMap.draw(canvas);
-            });
-
-            canvas._observer.observe(canvas.parentElement);
+            canvas._llHeatMap.observer.observe(canvas.parentElement);
+            this.requestDraw(canvas);
         },
 
         setData(canvas, width, height, pixels) {
-            canvas._source.width = width;
-            canvas._source.height = height;
+            const state = canvas._llHeatMap;
+            
+            state.source.width = width;
+            state.source.height = height;
+            
+            const imageData = new ImageData(new Uint8ClampedArray(pixels), width, height);
+            state.sourceContext.putImageData(imageData, 0, 0);
+            
+            this.requestDraw(canvas);
+        },
 
-            const imageData = new ImageData(
-                new Uint8ClampedArray(pixels),
-                width,
-                height
-            );
-
-            canvas._sourceContext.putImageData(imageData, 0, 0);
-
-            window.llHeatMap.draw(canvas);
+        requestDraw(canvas) {
+            const state = canvas._llHeatMap;
+            
+            if (!state.frameId) {
+                state.frameId = requestAnimationFrame(() => {
+                    state.frameId = 0;
+                    this.draw(canvas);
+                });
+            }
         },
 
         draw(canvas) {
+            const state = canvas._llHeatMap;
             const parent = canvas.parentElement;
-
             const cssWidth = parent.clientWidth;
             const cssHeight = parent.clientHeight;
-            const devicePixelRatio = window.devicePixelRatio || 1;
 
-            // Match the backing resolution to the display resolution for high-DPI screens.
-            canvas.width = Math.round(cssWidth * devicePixelRatio);
-            canvas.height = Math.round(cssHeight * devicePixelRatio);
+            if (cssWidth <= 0 || cssHeight <= 0) {
+                return;
+            }
 
-            canvas._context.imageSmoothingEnabled = true;
-            canvas._context.imageSmoothingQuality = "high";
+            // Notify Blazor if the container size changed so it can recalculate axis ticks
+            if (state.plotWidth !== cssWidth || state.plotHeight !== cssHeight) {
+                state.plotWidth = cssWidth;
+                state.plotHeight = cssHeight;
+                state.dotNetReference.invokeMethodAsync("OnPlotSizeChanged", cssWidth, cssHeight);
+            }
 
-            canvas._context.drawImage(
-                canvas._source,
-                0,
-                0,
-                canvas.width,
-                canvas.height
-            );
+            // Scale the canvas resolution to match the display's pixel density (e.g., Retina displays)
+            const dpr = window.devicePixelRatio || 1;
+            const backingWidth = Math.max(1, Math.round(cssWidth * dpr));
+            const backingHeight = Math.max(1, Math.round(cssHeight * dpr));
+
+            if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+                canvas.width = backingWidth;
+                canvas.height = backingHeight;
+            }
+
+            if (state.source.width === 0 || state.source.height === 0) {
+                return;
+            }
+
+            state.context.imageSmoothingEnabled = true;
+            state.context.imageSmoothingQuality = "high";
+            state.context.drawImage(state.source, 0, 0, backingWidth, backingHeight);
         },
 
         dispose(canvas) {
-            canvas._observer?.disconnect();
+            const state = canvas._llHeatMap;
+            
+            if (state) {
+                state.observer?.disconnect();
+                
+                if (state.frameId) {
+                    cancelAnimationFrame(state.frameId);
+                }
+                
+                delete canvas._llHeatMap;
+            }
         }
     };
 </script>
 
 @code {
-    /// <summary>
-    /// Fixed number of samples produced per line-laser scan row.
-    /// </summary>
+    private const int YAxisWidth = 56;
+    private const int XAxisHeight = 32;
     private const int HeatMapWidth = 1208;
-
-    /// <summary>
-    /// Number of bytes used to represent one RGBA pixel.
-    /// </summary>
-    private const int BytesPerPixel = 4;
+    private static readonly double[] NiceTickSteps = [1, 2, 5, 10];
 
     private ElementReference _canvas;
+    private DotNetObjectReference<HeatMap>? _dotNetReference;
+    
     private byte[] _pixels = [];
     private int _height;
+    private int _plotWidth;
+    private int _plotHeight;
     private bool _hasPendingData;
     private bool _isInitialized;
 
+    private List<AxisTick> _xTicks = [];
+    private List<AxisTick> _yTicks = [];
+
     /// <summary>
     /// Gets or sets the scan rows used to render the heat map.
-    /// Each row is expected to contain exactly 1208 values.
+    /// Each row must contain exactly 1208 values.
     /// </summary>
     [Parameter, EditorRequired]
     public IReadOnlyList<IReadOnlyList<double>> Data { get; set; } = [];
@@ -105,113 +215,163 @@
         _height = Data.Count;
         _pixels = BuildPixels(Data);
         _hasPendingData = true;
+        
+        UpdateTicks();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            await JS.InvokeVoidAsync("llHeatMap.init", _canvas);
+            _dotNetReference = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("llHeatMap.init", _canvas, _dotNetReference);
             _isInitialized = true;
         }
 
         if (_hasPendingData)
         {
             _hasPendingData = false;
-
-            await JS.InvokeVoidAsync(
-                "llHeatMap.setData",
-                _canvas,
-                HeatMapWidth,
-                _height,
-                _pixels);
+            await JS.InvokeVoidAsync("llHeatMap.setData", _canvas, HeatMapWidth, _height, _pixels);
         }
     }
 
     /// <summary>
-    /// Converts scan data into a contiguous RGBA pixel buffer.
+    /// Invoked by JavaScript when the canvas container is resized.
     /// </summary>
+    [JSInvokable]
+    public Task OnPlotSizeChanged(int width, int height)
+    {
+        if (_plotWidth == width && _plotHeight == height)
+        {
+            return Task.CompletedTask;
+        }
+
+        _plotWidth = width;
+        _plotHeight = height;
+        
+        UpdateTicks();
+
+        return InvokeAsync(StateHasChanged);
+    }
+
     private static byte[] BuildPixels(IReadOnlyList<IReadOnlyList<double>> data)
     {
-        var pixels = new byte[HeatMapWidth * data.Count * BytesPerPixel];
+        var pixels = new byte[HeatMapWidth * data.Count * 4];
+        var offset = 0;
 
-        for (var y = 0; y < data.Count; y++)
+        foreach (var row in data)
         {
-            var row = data[y];
-
             for (var x = 0; x < HeatMapWidth; x++)
             {
-                var offset = ((y * HeatMapWidth) + x) * BytesPerPixel;
+                var value = row[x];
 
-                WriteColor(row[x], pixels, offset);
+                // Map values to RGBA color bands
+                if      (value < 100) { pixels[offset++] = 0;   pixels[offset++] = 0;   pixels[offset++] = 139; }
+                else if (value < 200) { pixels[offset++] = 0;   pixels[offset++] = 0;   pixels[offset++] = 255; }
+                else if (value < 300) { pixels[offset++] = 0;   pixels[offset++] = 255; pixels[offset++] = 255; }
+                else if (value < 400) { pixels[offset++] = 0;   pixels[offset++] = 255; pixels[offset++] = 0;   }
+                else if (value < 500) { pixels[offset++] = 255; pixels[offset++] = 255; pixels[offset++] = 0;   }
+                else if (value < 600) { pixels[offset++] = 255; pixels[offset++] = 165; pixels[offset++] = 0;   }
+                else                  { pixels[offset++] = 255; pixels[offset++] = 0;   pixels[offset++] = 0;   }
+
+                pixels[offset++] = 255; // Alpha channel (fully opaque)
             }
         }
 
         return pixels;
     }
 
-    /// <summary>
-    /// Maps a scan value to a predefined heat-map color band.
-    /// </summary>
-    private static void WriteColor(double value, byte[] pixels, int offset)
+    private void UpdateTicks()
     {
-        if (value < 100)
+        if (_plotWidth <= 0 || _plotHeight <= 0 || _height <= 0)
         {
-            WritePixel(pixels, offset, 0, 0, 139);
+            _xTicks = [];
+            _yTicks = [];
+            return;
         }
-        else if (value < 200)
-        {
-            WritePixel(pixels, offset, 0, 0, 255);
-        }
-        else if (value < 300)
-        {
-            WritePixel(pixels, offset, 0, 255, 255);
-        }
-        else if (value < 400)
-        {
-            WritePixel(pixels, offset, 0, 255, 0);
-        }
-        else if (value < 500)
-        {
-            WritePixel(pixels, offset, 255, 255, 0);
-        }
-        else if (value < 600)
-        {
-            WritePixel(pixels, offset, 255, 165, 0);
-        }
-        else
-        {
-            WritePixel(pixels, offset, 255, 0, 0);
-        }
+
+        _xTicks = BuildTicks(HeatMapWidth, _plotWidth, targetSpacing: 110);
+        _yTicks = BuildTicks(_height, _plotHeight, targetSpacing: 75);
     }
 
-    /// <summary>
-    /// Writes a single opaque RGBA pixel into the destination buffer.
-    /// </summary>
-    private static void WritePixel(byte[] pixels, int offset, byte red, byte green, byte blue)
+    private static List<AxisTick> BuildTicks(int domainEnd, int pixelLength, int targetSpacing)
     {
-        pixels[offset + 0] = red;
-        pixels[offset + 1] = green;
-        pixels[offset + 2] = blue;
-        pixels[offset + 3] = 255;
+        if (domainEnd <= 1)
+        {
+            return [new AxisTick(1, 0)];
+        }
+
+        var desiredIntervals = Math.Max(1, pixelLength / (double)targetSpacing);
+        var rawInterval = (domainEnd - 1) / desiredIntervals;
+        var interval = GetNiceInterval(rawInterval);
+        var minimumEdgeSpacing = targetSpacing * 0.45;
+
+        var ticks = new List<AxisTick> { new AxisTick(1, 0) };
+
+        for (var value = interval; value < domainEnd; value += interval)
+        {
+            var position = (value - 1) * (double)pixelLength / (domainEnd - 1);
+
+            if (position >= minimumEdgeSpacing && pixelLength - position >= minimumEdgeSpacing)
+            {
+                ticks.Add(new AxisTick(value, position));
+            }
+        }
+
+        ticks.Add(new AxisTick(domainEnd, pixelLength));
+
+        return ticks;
+    }
+
+    private static int GetNiceInterval(double rawInterval)
+    {
+        if (rawInterval <= 1)
+        {
+            return 1;
+        }
+
+        var magnitude = Math.Pow(10, Math.Floor(Math.Log10(rawInterval)));
+        var bestInterval = NiceTickSteps.MinBy(step => Math.Abs((step * magnitude) - rawInterval)) * magnitude;
+
+        return (int)Math.Round(bestInterval);
+    }
+
+    private static string GetXAxisTextAnchor(int value)
+    {
+        if (value == 1) return "start";
+        if (value == HeatMapWidth) return "end";
+        return "middle";
+    }
+
+    private static string Format(double value)
+    {
+        return value.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    private static MarkupString RenderSvgText(string cssClass, double x, double y, string textAnchor, string dominantBaseline, int value)
+    {
+        // Bypasses the Razor compiler's inability to parse SVG <text> tags containing attributes
+        return new MarkupString($"<text class=\"{cssClass}\" x=\"{Format(x)}\" y=\"{Format(y)}\" text-anchor=\"{textAnchor}\" dominant-baseline=\"{dominantBaseline}\">{value}</text>");
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (!_isInitialized)
-        {
-            return;
-        }
-
         try
         {
-            await JS.InvokeVoidAsync("llHeatMap.dispose", _canvas);
+            if (_isInitialized)
+            {
+                await JS.InvokeVoidAsync("llHeatMap.dispose", _canvas);
+            }
         }
-        catch (InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
         {
+            // Ignored during teardown
         }
-        catch (JSDisconnectedException)
+        finally
         {
+            _dotNetReference?.Dispose();
         }
     }
+
+    private readonly record struct AxisTick(int Value, double Position);
 }
