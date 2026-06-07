@@ -50,6 +50,76 @@
 
 </div>
 
+<script>
+    window.HeatMap ??= (() => {
+        const observers = new WeakMap();
+        const sourceCanvas = document.createElement("canvas");
+        const sourceContext = sourceCanvas.getContext("2d", { alpha: false });
+
+        return {
+            init(canvas, dotNetRef) {
+                const observer = new ResizeObserver(([entry]) => {
+                    const { width, height } = entry.contentRect;
+
+                    if (width && height) {
+                        dotNetRef.invokeMethodAsync(
+                            "OnPlotSizeChanged",
+                            Math.round(width),
+                            Math.round(height)
+                        );
+                    }
+                });
+
+                observer.observe(canvas);
+                observers.set(canvas, observer);
+            },
+
+            setData(canvas, dataWidth, dataHeight, pixels) {
+                if (!dataWidth || !dataHeight) return;
+
+                const { width, height } = canvas.getBoundingClientRect();
+                const displayWidth = Math.max(1, Math.round(width));
+                const displayHeight = Math.max(1, Math.round(height));
+                const pixelRatio = window.devicePixelRatio || 1;
+
+                sourceCanvas.width = dataWidth;
+                sourceCanvas.height = dataHeight;
+
+                sourceContext.putImageData(
+                    new ImageData(
+                        new Uint8ClampedArray(
+                            pixels.buffer,
+                            pixels.byteOffset,
+                            pixels.byteLength
+                        ),
+                        dataWidth,
+                        dataHeight
+                    ),
+                    0,
+                    0
+                );
+
+                canvas.width = Math.round(displayWidth * pixelRatio);
+                canvas.height = Math.round(displayHeight * pixelRatio);
+
+                const context = canvas.getContext("2d", {
+                    alpha: false,
+                    desynchronized: true
+                });
+
+                context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+                context.imageSmoothingEnabled = false;
+                context.drawImage(sourceCanvas, 0, 0, displayWidth, displayHeight);
+            },
+
+            dispose(canvas) {
+                observers.get(canvas)?.disconnect();
+                observers.delete(canvas);
+            }
+        };
+    })();
+</script>
+
 <style>
     .heatmap-root {
             display: grid;
@@ -81,6 +151,7 @@
         height: 100%;
         min-width: 0;
         min-height: 0;
+        image-rendering: crisp-edges;
     }
 
     .heatmap-x-axis {
@@ -150,54 +221,6 @@
     }
 </style>
 
-<script>
-    window.HeatMap ??= (function () {
-        const observers = new WeakMap();
-
-        return {
-            /**
-             * Initializes the ResizeObserver to report canvas dimensions back to Blazor.
-             */
-            init(canvas, dotNetRef) {
-                const observer = new ResizeObserver(e => {
-                    const { width, height } = e[0].contentRect;
-                    if (width && height) {
-                        dotNetRef.invokeMethodAsync("OnPlotSizeChanged", Math.round(width), Math.round(height));
-                    }
-                });
-                
-                observer.observe(canvas);
-                observers.set(canvas, observer);
-            },
-
-            /**
-             * Directly paints the byte array to the canvas using ImageData.
-             */
-            setData(canvas, w, h, pixels) {
-                if (!w || !h) return;
-                canvas.width = w;
-                canvas.height = h;
-                
-                const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
-                const imgData = new ImageData(new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength), w, h);
-                
-                ctx.putImageData(imgData, 0, 0);
-            },
-
-            /**
-             * Cleans up event listeners and observers.
-             */
-            dispose(canvas) {
-                const observer = observers.get(canvas);
-                if (observer) {
-                    observer.disconnect();
-                    observers.delete(canvas);
-                }
-            }
-        };
-    })();
-</script>
-
 @code {
     // --- Layout Constants ---
     private const int YAxisWidth = 76;      
@@ -256,7 +279,7 @@
         if (_hasPendingData && DataWidth > 0 && DataHeight > 0)
         {
             _hasPendingData = false;
-            await JS.InvokeVoidAsync("HeatMap.setData", _canvas, DataWidth, DataHeight, _pixels);
+           await JS.InvokeVoidAsync("HeatMap.setData", _canvas, DataWidth, DataHeight, _pixels);
         }
     }
 
@@ -337,32 +360,33 @@
     /// </summary>
     private static List<AxisTick> BuildTicks(int domainEnd, int pixelLength, int targetSpacing)
     {
-        // 1. Point to the center of the first cell (0.5)
         if (domainEnd <= 1) 
-            return [new(1, 0.5 * pixelLength / Math.Max(1, domainEnd))];
+            return [new(1, pixelLength / 2.0)];
 
-        var exactInterval = (domainEnd - 1.0) / Math.Max(1.0, (double)pixelLength / targetSpacing);
-        var interval = GetCleanInterval(exactInterval);
+        // 1. Calculate the exact pixel height/width of a single data cell
+        double cellSize = (double)pixelLength / domainEnd;
+        
+        int interval = GetCleanInterval((domainEnd - 1.0) / Math.Max(1, pixelLength / targetSpacing));
 
-        // First tick is always 1, pointing to the center of the first cell
-        var ticks = new List<AxisTick> { new(1, 0.5 * pixelLength / domainEnd) };
+        // First tick is always 1, pointing to the center of the first cell (0.5)
+        var ticks = new List<AxisTick> { new(1, 0.5 * cellSize) };
 
-        const double MinOverlapBuffer = 30.0;
-        var startVal = (1 / interval + 1) * interval;
+        // 2. Start at the first clean multiple (e.g., 10, 20). If interval is 1, start at 2.
+        int startVal = interval == 1 ? 2 : interval;
 
-        for (var val = startVal; val < domainEnd; val += interval)
+        for (int val = startVal; val < domainEnd; val += interval)
         {
-            // Map to the center of the cell
-            var pos = (val - 0.5) * pixelLength / domainEnd;
+            double pos = (val - 0.5) * cellSize;
             
-            if (pos >= MinOverlapBuffer && (pixelLength - pos) >= MinOverlapBuffer)
+            // 3. Keep tick if it's at least 30px away from the start and end boundaries
+            if (pos >= 30 && (pixelLength - pos) >= 30)
             {
                 ticks.Add(new(val, pos));
             }
         }
 
-        // Final tick points to the center of the last cell
-        ticks.Add(new(domainEnd, (domainEnd - 0.5) * pixelLength / domainEnd));
+        // Final tick is always the last row, pointing to the center of the last cell
+        ticks.Add(new(domainEnd, (domainEnd - 0.5) * cellSize));
         
         return ticks;
     }
