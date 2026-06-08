@@ -1,0 +1,326 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="line-chart" style="@Style">
+    <canvas @ref="_axis" class="line-chart-axis"></canvas>
+
+    <div @ref="_host" class="line-chart-scroll">
+        <canvas @ref="_canvas" class="line-chart-canvas"></canvas>
+    </div>
+</div>
+
+<script>
+    window.LineChart ??= (() => {
+        const charts = new WeakMap();
+        const top = 12;
+        const bottom = 30;
+        const right = 20;
+        const labelGap = 110;
+        const pixelsPerSecond = 80;
+        const minPointGap = 2;
+
+        const atEnd = host =>
+            host.scrollWidth - host.clientWidth - host.scrollLeft <= 12;
+
+        function fit(canvas, width, height) {
+            const ratio = devicePixelRatio || 1;
+            const w = Math.max(1, Math.round(width));
+            const h = Math.max(1, Math.round(height));
+
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${h}px`;
+
+            const rw = Math.round(w * ratio);
+            const rh = Math.round(h * ratio);
+
+            if (canvas.width !== rw || canvas.height !== rh) {
+                canvas.width = rw;
+                canvas.height = rh;
+            }
+
+            const ctx = canvas.getContext("2d", { desynchronized: true });
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+            return ctx;
+        }
+
+        function label(time) {
+            const d = new Date(time);
+            return `${String(d.getHours()).padStart(2, "0")}:` +
+                   `${String(d.getMinutes()).padStart(2, "0")}:` +
+                   `${String(d.getSeconds()).padStart(2, "0")}.` +
+                   `${String(d.getMilliseconds()).padStart(3, "0")}`;
+        }
+
+        function ticks(min, max) {
+            const raw = (max - min) / 4;
+            const mag = 10 ** Math.floor(Math.log10(raw || 1));
+            const n = raw / mag;
+            const step = (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * mag;
+            const first = Math.ceil(min / step) * step;
+            const result = [];
+
+            for (let v = first; v <= max; v += step)
+                result.push(v);
+
+            return result.length ? result : [min, max];
+        }
+
+        function format(v) {
+            if (Math.abs(v) >= 100) return v.toFixed(0);
+            if (Math.abs(v) >= 10) return v.toFixed(1);
+            return v.toFixed(2);
+        }
+
+        function draw(s) {
+            const count = s.values.length;
+            const height = s.host.clientHeight;
+            const hostWidth = s.host.clientWidth;
+            const axisWidth = s.axis.clientWidth;
+
+            const axis = fit(s.axis, axisWidth, height);
+            let ctx = fit(s.canvas, hostWidth, height);
+
+            axis.clearRect(0, 0, axisWidth, height);
+            ctx.clearRect(0, 0, hostWidth, height);
+
+            if (!count) return;
+
+            let min = s.values[0];
+            let max = s.values[0];
+
+            for (const v of s.values) {
+                if (v < min) min = v;
+                if (v > max) max = v;
+            }
+
+            if (min === max) {
+                min -= 1;
+                max += 1;
+            } else {
+                const pad = (max - min) * 0.1;
+                min -= pad;
+                max += pad;
+            }
+
+            const firstTime = s.times[0];
+            const lastTime = s.times[count - 1];
+            const seconds = Math.max(0.001, (lastTime - firstTime) / 1000);
+            const scale = Math.max(pixelsPerSecond, ((count - 1) * minPointGap) / seconds);
+            const width = Math.max(hostWidth, Math.ceil(seconds * scale + right));
+            const plotHeight = height - top - bottom;
+
+            ctx = fit(s.canvas, width, height);
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.font = "11px system-ui";
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = "#e5e7eb";
+            ctx.fillStyle = "#6b7280";
+
+            axis.font = "11px system-ui";
+            axis.textAlign = "right";
+            axis.textBaseline = "middle";
+            axis.fillStyle = "#6b7280";
+
+            for (const tick of ticks(min, max)) {
+                const y = top + ((max - tick) / (max - min)) * plotHeight;
+
+                ctx.beginPath();
+                ctx.moveTo(0, Math.round(y) + 0.5);
+                ctx.lineTo(width, Math.round(y) + 0.5);
+                ctx.stroke();
+
+                axis.fillText(format(tick), axisWidth - 8, y);
+            }
+
+            let nextLabelX = 0;
+
+            for (let i = 0; i < count; i++) {
+                const x = count === 1 ? 12 : ((s.times[i] - firstTime) / 1000) * scale;
+
+                if (x >= nextLabelX && x + labelGap < width) {
+                    ctx.fillText(label(s.times[i]), x + 4, height - 9);
+                    nextLabelX = x + labelGap;
+                }
+            }
+
+            ctx.strokeStyle = "#2563eb";
+            ctx.lineWidth = 2;
+            ctx.lineJoin = "round";
+            ctx.lineCap = "round";
+            ctx.beginPath();
+
+            for (let i = 0; i < count; i++) {
+                const x = count === 1 ? 12 : ((s.times[i] - firstTime) / 1000) * scale;
+                const y = top + ((max - s.values[i]) / (max - min)) * plotHeight;
+
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+
+            ctx.stroke();
+        }
+
+        return {
+            init(host, canvas, axis) {
+                const s = {
+                    host,
+                    canvas,
+                    axis,
+                    times: [],
+                    values: [],
+                    pinned: true
+                };
+
+                s.scroll = () => s.pinned = atEnd(host);
+                s.resize = new ResizeObserver(() => draw(s));
+
+                host.addEventListener("scroll", s.scroll, { passive: true });
+                s.resize.observe(host);
+
+                charts.set(canvas, s);
+                draw(s);
+            },
+
+            push(canvas, times, values, reset) {
+                const s = charts.get(canvas);
+                if (!s) return;
+
+                const stick = s.pinned || atEnd(s.host);
+
+                if (reset) {
+                    s.times.length = 0;
+                    s.values.length = 0;
+                }
+
+                for (let i = 0; i < values.length; i++) {
+                    s.times.push(times[i]);
+                    s.values.push(values[i]);
+                }
+
+                draw(s);
+
+                if (stick) {
+                    s.host.scrollLeft = s.host.scrollWidth - s.host.clientWidth;
+                    s.pinned = true;
+                }
+            },
+
+            dispose(canvas) {
+                const s = charts.get(canvas);
+                if (!s) return;
+
+                s.resize.disconnect();
+                s.host.removeEventListener("scroll", s.scroll);
+                charts.delete(canvas);
+            }
+        };
+    })();
+</script>
+
+<style>
+    .line-chart {
+        display: grid;
+        grid-template-columns: 64px minmax(0, 1fr);
+        width: 100%;
+        overflow: hidden;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        background: white;
+        box-sizing: border-box;
+    }
+
+    .line-chart-axis,
+    .line-chart-canvas {
+        display: block;
+        height: 100%;
+    }
+
+    .line-chart-axis {
+        width: 64px;
+        background: white;
+    }
+
+    .line-chart-scroll {
+        width: 100%;
+        height: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+</style>
+
+@code {
+    private ElementReference _host;
+    private ElementReference _canvas;
+    private ElementReference _axis;
+
+    private bool _ready;
+    private bool _dirty = true;
+    private int _sent;
+
+    private string Style => $"height:{Height}px";
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<LinePoint> Data { get; set; } = [];
+
+    [Parameter]
+    public int Height { get; set; } 
+
+    protected override void OnParametersSet()
+    {
+        _dirty = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("LineChart.init", _host, _canvas, _axis);
+            _ready = true;
+        }
+
+        if (!_ready || !_dirty)
+            return;
+
+        var reset = Data.Count < _sent;
+        var start = reset ? 0 : _sent;
+        var count = Data.Count - start;
+
+        if (count > 0 || reset)
+        {
+            var times = new long[count];
+            var values = new double[count];
+
+            for (var i = 0; i < count; i++)
+            {
+                var point = Data[start + i];
+
+                times[i] = new DateTimeOffset(point.Timestamp).ToUnixTimeMilliseconds();
+                values[i] = point.Value;
+            }
+
+            await JS.InvokeVoidAsync("LineChart.push", _canvas, times, values, reset);
+
+            _sent = Data.Count;
+        }
+
+        _dirty = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_ready)
+                await JS.InvokeVoidAsync("LineChart.dispose", _canvas);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        {
+        }
+    }
+
+    public readonly record struct LinePoint(DateTime Timestamp, double Value);
+}
