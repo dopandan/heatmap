@@ -1,454 +1,66 @@
-@using Microsoft.JSInterop
-@using System.Globalization
-@using System.Runtime.CompilerServices
-@implements IAsyncDisposable
-@inject IJSRuntime JS
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
 
-<div class="heatmap-root">
-
-    @* Heatmap Legend *@
-    <div class="heatmap-legend">
-        <div class="heatmap-legend-title">Heatmap Legend</div>
-        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(255, 0, 0);"></div> &ge; 600</div>
-        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(255, 165, 0);"></div> 500 - 599</div>
-        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(255, 255, 0);"></div> 400 - 499</div>
-        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 255, 0);"></div> 300 - 399</div>
-        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 255, 255);"></div> 200 - 299</div>
-        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 0, 255);"></div> 100 - 199</div>
-        <div class="heatmap-legend-item"><div class="heatmap-legend-color" style="background: rgb(0, 0, 139);"></div> &lt; 100</div>
-    </div>
-    
-    @* Y-Axis *@
-    <svg class="heatmap-y-axis" viewBox="0 0 @YAxisWidth @Math.Max(_plotHeight, 1)" preserveAspectRatio="none">
-        @{
-            var yCenterStr = (Math.Max(_plotHeight, 1) / 2.0).ToString(CultureInfo.InvariantCulture);
-        }
-        <text class="heatmap-title" x="@YAxisTitleOffset" y="@yCenterStr" transform="rotate(-90, @YAxisTitleOffset, @yCenterStr)" text-anchor="middle">Batch Number</text>
-
-        @foreach (var tick in _yTicks)
-        {
-            <line class="heatmap-tick" x1="@(YAxisWidth - TickLength)" y1="@tick.Position" x2="@YAxisWidth" y2="@tick.Position" />
-            
-            @* FIX: Replaced "middle" with GetYAxisBaseline(tick.Value) *@
-            @RenderSvgText(YAxisTextOffset, tick.Position, "end", GetYAxisBaseline(tick.Value), tick.Value)
-        }
-    </svg>
-
-    @* Heatmap Canvas *@
-    <canvas @ref="_canvas" class="heatmap-canvas" role="img" aria-label="Line-laser heat map"></canvas>
-
-    @* X-Axis *@
-    <svg class="heatmap-x-axis" viewBox="0 0 @Math.Max(_plotWidth, 1) @XAxisHeight" preserveAspectRatio="none">
-        <text class="heatmap-title" x="50%" y="@XAxisTitleOffset" text-anchor="middle">Batch Index</text>
-
-        @foreach (var tick in _xTicks)
-        {
-            <line class="heatmap-tick" x1="@tick.Position" y1="0" x2="@tick.Position" y2="@TickLength" />
-            @RenderSvgText(tick.Position, XAxisTextOffset, GetXAxisTextAnchor(tick.Value), "auto", tick.Value)
-        }
-    </svg>
-
+<div style="width: 100%; height: 300px; border: 1px solid black;">
+    <HeatMap Data="_data"
+             MinXAxisDomain="1208"
+             MinYAxisDomain="500" />
 </div>
 
-<script>
-    window.HeatMap ??= (() => {
-        const observers = new WeakMap();
-        const sourceCanvas = document.createElement("canvas");
-        const sourceContext = sourceCanvas.getContext("2d", { alpha: false });
-
-        return {
-            init(canvas, dotNetRef) {
-                const observer = new ResizeObserver(([entry]) => {
-                    const { width, height } = entry.contentRect;
-
-                    if (width && height) {
-                        dotNetRef.invokeMethodAsync(
-                            "OnPlotSizeChanged",
-                            Math.round(width),
-                            Math.round(height)
-                        );
-                    }
-                });
-
-                observer.observe(canvas);
-                observers.set(canvas, observer);
-            },
-
-            setData(canvas, dataWidth, dataHeight, pixels) {
-                if (!dataWidth || !dataHeight) return;
-
-                const { width, height } = canvas.getBoundingClientRect();
-                const displayWidth = Math.max(1, Math.round(width));
-                const displayHeight = Math.max(1, Math.round(height));
-                const pixelRatio = window.devicePixelRatio || 1;
-
-                sourceCanvas.width = dataWidth;
-                sourceCanvas.height = dataHeight;
-
-                sourceContext.putImageData(
-                    new ImageData(
-                        new Uint8ClampedArray(
-                            pixels.buffer,
-                            pixels.byteOffset,
-                            pixels.byteLength
-                        ),
-                        dataWidth,
-                        dataHeight
-                    ),
-                    0,
-                    0
-                );
-
-                canvas.width = Math.round(displayWidth * pixelRatio);
-                canvas.height = Math.round(displayHeight * pixelRatio);
-
-                const context = canvas.getContext("2d", {
-                    alpha: false,
-                    desynchronized: true
-                });
-
-                context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-                context.imageSmoothingEnabled = false;
-                context.drawImage(sourceCanvas, 0, 0, displayWidth, displayHeight);
-            },
-
-            dispose(canvas) {
-                observers.get(canvas)?.disconnect();
-                observers.delete(canvas);
-            }
-        };
-    })();
-</script>
-
-<style>
-    .heatmap-root {
-            display: grid;
-            grid-template-columns: @(YAxisWidth)px minmax(0, 1fr) max-content;
-            grid-template-rows: minmax(0, 1fr) @(XAxisHeight)px;
-            width: 100%;
-            height: 100%;
-            color: #6b7280;
-            box-sizing: border-box;
-            padding: 16px; 
-            background-color: blue; 
-            border: 1px solid #e5e7eb; 
-            border-radius: 8px; 
-        }
-
-    .heatmap-y-axis {
-        grid-column: 1;
-        grid-row: 1;
-        width: 100%;
-        height: 100%;
-        overflow: visible;
-    }
-
-    .heatmap-canvas {
-        grid-column: 2;
-        grid-row: 1;
-        display: block;
-        width: 100%;
-        height: 100%;
-        min-width: 0;
-        min-height: 0;
-        image-rendering: crisp-edges;
-    }
-
-    .heatmap-x-axis {
-        grid-column: 2;
-        grid-row: 2;
-        width: 100%;
-        height: 100%;
-        overflow: visible;
-    }
-
-    .heatmap-label {
-        font-size: 11px;
-        fill: currentColor;
-        user-select: none;
-    }
-
-    .heatmap-tick {
-        stroke: currentColor;
-        stroke-width: 1;
-        shape-rendering: crispEdges;
-    }
-
-    .heatmap-title {
-        font-size: 14px;
-        font-weight: 600;
-        fill: currentColor;
-        user-select: none;
-    }
-
-    .heatmap-legend {
-        grid-column: 3;
-        grid-row: 1 / span 2;
-        place-self: stretch stretch; 
-        border-radius: 0 8px 8px 0;     
-        padding: 16px;
-        background-color: #f9fafb;
-        border-left: 1px solid #e5e7eb;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .heatmap-legend-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: #374151;
-        margin-bottom: 4px;
-        text-align: center;
-        user-select: none;
-    }
-
-    .heatmap-legend-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 11px;
-        color: #4b5563;
-        user-select: none;
-    }
-
-    .heatmap-legend-color {
-        width: 14px;
-        height: 14px;
-        border-radius: 3px;
-        flex-shrink: 0;
-        border: 1px solid rgba(0, 0, 0, 0.15); 
-    }
-</style>
-
 @code {
-    // --- Layout Constants ---
-    private const int YAxisWidth = 76;      
-    private const int XAxisHeight = 52;      
-    private const int TickLength = 6;
-    private const int YAxisTextOffset = 68;  
-    private const int XAxisTextOffset = 24;  
-    private const int XAxisTitleOffset = 48; 
-    private const int YAxisTitleOffset = 16; 
-    
-    private const int XAxisTargetSpacing = 110;
-    private const int YAxisTargetSpacing = 75;
+    private const int Width = 1208;
+    private const int MaxHeight = 500;
 
-    /// <summary>
-    /// Allowed intervals for axis ticks to ensure human-readable numbers.
-    /// </summary>
-    private static readonly double[] CleanTickSteps = [1, 2, 5, 10];
+    private readonly PeriodicTimer _timer = new(TimeSpan.FromMilliseconds(50));
+    private readonly Random _random = new();
 
-    private ElementReference _canvas;
-    private DotNetObjectReference<HeatMap>? _dotNetReference;
-    
-    private byte[] _pixels = [];
-    private int _plotWidth;
-    private int _plotHeight;
-    private bool _hasPendingData;
+    private List<IReadOnlyList<double>> _rows = [];
+    private IReadOnlyList<IReadOnlyList<double>> _data = [];
 
-    private List<AxisTick> _xTicks = [];
-    private List<AxisTick> _yTicks = [];
+    private bool _disposed;
 
-    /// <summary>
-    /// The 2D array of sensor data to render. 
-    /// Outer list represents the Y-axis.
-    /// Inner list represents the X-axis.
-    /// </summary>
-    [Parameter, EditorRequired]
-    public IReadOnlyList<IReadOnlyList<double>> Data { get; set; } = [];
-
-    private int DataWidth => Data.FirstOrDefault()?.Count ?? 0;
-    private int DataHeight => Data.Count;
-
-    protected override void OnParametersSet()
+    protected override void OnInitialized()
     {
-        UpdatePixels();
-        _hasPendingData = true;
-        UpdateTicks();
+        _ = RunHeatmapStreamAsync();
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private async Task RunHeatmapStreamAsync()
     {
-        if (firstRender)
+        while (!_disposed && await _timer.WaitForNextTickAsync())
         {
-            _dotNetReference = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("HeatMap.init", _canvas, _dotNetReference);
-        }
-
-        if (_hasPendingData && DataWidth > 0 && DataHeight > 0)
-        {
-            _hasPendingData = false;
-           await JS.InvokeVoidAsync("HeatMap.setData", _canvas, DataWidth, DataHeight, _pixels);
-        }
-    }
-
-    /// <summary>
-    /// Invoked by JS ResizeObserver when the canvas container changes size.
-    /// Recalculates axis ticks based on the new available pixel space.
-    /// </summary>
-    [JSInvokable]
-    public Task OnPlotSizeChanged(int width, int height)
-    {
-        if (_plotWidth == width && _plotHeight == height) 
-            return Task.CompletedTask;
-
-        _plotWidth = width;
-        _plotHeight = height;
-        UpdateTicks();
-
-        return InvokeAsync(StateHasChanged);
-    }
-
-    /// <summary>
-    /// Converts the raw 2D double array into a flat RGBA byte array.
-    /// Reuses the existing array allocation if dimensions haven't changed to prevent GC pressure.
-    /// </summary>
-    private void UpdatePixels()
-    {
-        var width = DataWidth;
-        var height = DataHeight;
-        if (width == 0 || height == 0) return;
-
-        var requiredSize = width * height * 4; // 4 bytes per pixel (R, G, B, A)
-        
-        if (_pixels.Length != requiredSize)
-        {
-            _pixels = new byte[requiredSize];
-        }
-
-        var i = 0;
-        foreach (var row in Data)
-        {
-            for (var x = 0; x < width; x++)
+            if (_rows.Count >= MaxHeight)
             {
-                ApplyColorMapping(_pixels, ref i, row[x]);
+                _rows.RemoveAt(0);
             }
+
+            _rows.Add(BuildRandomRow());
+
+            // New outer list reference so Blazor sees the parameter changed.
+            _data = _rows.ToList();
+
+            await InvokeAsync(StateHasChanged);
         }
     }
 
-    /// <summary>
-    /// Maps a sensor value to a color scale. 
-    /// Aggressively inlined to ensure the tightest possible loop performance.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void ApplyColorMapping(byte[] pixels, ref int i, double v)
+    private IReadOnlyList<double> BuildRandomRow()
     {
-        if      (v < 100) { pixels[i++] = 0;   pixels[i++] = 0;   pixels[i++] = 139; } // < 100: Dark Blue 
-        else if (v < 200) { pixels[i++] = 0;   pixels[i++] = 0;   pixels[i++] = 255; } // < 200: Blue
-        else if (v < 300) { pixels[i++] = 0;   pixels[i++] = 255; pixels[i++] = 255; } // < 300: Cyan
-        else if (v < 400) { pixels[i++] = 0;   pixels[i++] = 255; pixels[i++] = 0;   } // < 400: Green
-        else if (v < 500) { pixels[i++] = 255; pixels[i++] = 255; pixels[i++] = 0;   } // < 500: Yellow
-        else if (v < 600) { pixels[i++] = 255; pixels[i++] = 165; pixels[i++] = 0;   } // < 600: Orange
-        else              { pixels[i++] = 255; pixels[i++] = 0;   pixels[i++] = 0;   } // >=600: Red 
-        
-        pixels[i++] = 255; // Alpha channel (fully opaque)
-    }
+        var row = new double[Width];
 
-    private void UpdateTicks()
-    {
-        if (_plotWidth <= 0 || _plotHeight <= 0 || DataHeight <= 0 || DataWidth <= 0) 
-            return;
-
-        _xTicks = BuildTicks(DataWidth, _plotWidth, XAxisTargetSpacing);
-        _yTicks = BuildTicks(DataHeight, _plotHeight, YAxisTargetSpacing);
-    }
-
-    /// <summary>
-    /// Generates a list of ticks distributed evenly across the domain.
-    /// It anchors at 1, steps by a clean interval (e.g., 10, 20, 30), and guarantees the final domainEnd tick.
-    /// </summary>
-    private static List<AxisTick> BuildTicks(int domainEnd, int pixelLength, int targetSpacing)
-    {
-        if (domainEnd <= 1) 
-            return [new(1, pixelLength / 2.0)];
-
-        // 1. Calculate the exact pixel height/width of a single data cell
-        double cellSize = (double)pixelLength / domainEnd;
-        
-        int interval = GetCleanInterval((domainEnd - 1.0) / Math.Max(1, pixelLength / targetSpacing));
-
-        // First tick is always 1, pointing to the center of the first cell (0.5)
-        var ticks = new List<AxisTick> { new(1, 0.5 * cellSize) };
-
-        // 2. Start at the first clean multiple (e.g., 10, 20). If interval is 1, start at 2.
-        int startVal = interval == 1 ? 2 : interval;
-
-        for (int val = startVal; val < domainEnd; val += interval)
+        for (var x = 0; x < Width; x++)
         {
-            double pos = (val - 0.5) * cellSize;
-            
-            // 3. Keep tick if it's at least 30px away from the start and end boundaries
-            if (pos >= 30 && (pixelLength - pos) >= 30)
-            {
-                ticks.Add(new(val, pos));
-            }
+            var wave = Math.Sin((x + _rows.Count * 8) * 0.02);
+            var noise = _random.NextDouble() * 120;
+
+            row[x] = 350 + wave * 250 + noise;
         }
 
-        // Final tick is always the last row, pointing to the center of the last cell
-        ticks.Add(new(domainEnd, (domainEnd - 0.5) * cellSize));
-        
-        return ticks;
+        return row;
     }
 
-    /// <summary>
-    /// Adjusts the SVG dominant-baseline so the first and last Y-axis labels don't clip outside the frame.
-    /// </summary>
-    private string GetYAxisBaseline(int value) => value switch
+    public void Dispose()
     {
-        1 => "hanging",
-        var v when v == DataHeight => "auto",
-        _ => "middle"
-    };
-
-    /// <summary>
-    /// Rounds a raw interval up to the nearest clean step for readability.
-    /// </summary>
-    private static int GetCleanInterval(double raw)
-    {
-        if (raw <= 1) return 1;
-        
-        var mag = Math.Pow(10, Math.Floor(Math.Log10(raw)));
-        return (int)Math.Round(CleanTickSteps.MinBy(s => Math.Abs(s * mag - raw)) * mag);
+        _disposed = true;
+        _timer.Dispose();
     }
-
-    /// <summary>
-    /// Adjusts the SVG text-anchor so the first and last X-axis labels don't clip outside the SVG bounds.
-    /// </summary>
-    private string GetXAxisTextAnchor(int value) => value switch
-    {
-        1 => "start",
-        var v when v == DataWidth => "end",
-        _ => "middle"
-    };
-
-    /// <summary>
-    /// Renders an SVG text element. 
-    /// </summary>
-    private static MarkupString RenderSvgText(double x, double y, string anchor, string baseline, int value)
-    {
-        var xStr = x.ToString(CultureInfo.InvariantCulture);
-        var yStr = y.ToString(CultureInfo.InvariantCulture);
-        
-        return new MarkupString(
-            $"<text class=\"heatmap-label\" x=\"{xStr}\" y=\"{yStr}\" text-anchor=\"{anchor}\" dominant-baseline=\"{baseline}\">{value}</text>"
-        );
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        try
-        {
-            if (_dotNetReference is not null)
-            {
-                await JS.InvokeVoidAsync("HeatMap.dispose", _canvas);
-                _dotNetReference.Dispose();
-            }
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException) 
-        { 
-        }
-    }
-
-    private readonly record struct AxisTick(int Value, double Position);
 }
