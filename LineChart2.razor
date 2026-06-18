@@ -1,0 +1,178 @@
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="line-chart">
+    @if (!string.IsNullOrWhiteSpace(Title))
+    {
+        <div class="line-chart-title">@Title</div>
+    }
+    <div class="line-chart-host">
+        <canvas @ref="_canvas"></canvas>
+    </div>
+</div>
+
+<script>
+    window.LineChart = {
+        _state: new WeakMap(),
+
+        init(canvas) {
+            const resize = new ResizeObserver(() => this.draw(canvas));
+            resize.observe(canvas.parentElement);
+            this._state.set(canvas, { resize, data: [] });
+        },
+
+        update(canvas, data) {
+            const state = this._state.get(canvas);
+            if (state) {
+                state.data = data;
+                this.draw(canvas);
+            }
+        },
+
+        dispose(canvas) {
+            const state = this._state.get(canvas);
+            if (state) state.resize.disconnect();
+            this._state.delete(canvas);
+        },
+
+        draw(canvas) {
+            const state = this._state.get(canvas);
+            if (!state || !state.data.length) return;
+
+            const parent = canvas.parentElement;
+            const ratio = window.devicePixelRatio || 1;
+            const w = parent.clientWidth, h = parent.clientHeight;
+            
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${h}px`;
+            canvas.width = Math.round(w * ratio);
+            canvas.height = Math.round(h * ratio);
+
+            const ctx = canvas.getContext("2d", { desynchronized: true });
+            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+            const left = 70, right = 30, top = 20, bottom = 60;
+            const plotW = w - left - right, plotH = h - top - bottom;
+            const data = state.data;
+            const xMax = Math.max(1, data.length - 1);
+
+            let min = Math.min(...data), max = Math.max(...data);
+            if (min === max) { min -= 1; max += 1; }
+            else { const pad = (max - min) * 0.1; min -= pad; max += pad; }
+
+            const getTicks = (min, max) => {
+                const step = (10 ** Math.floor(Math.log10((max - min) / 4 || 1))) * 
+                             ([1, 2, 5, 10].find(n => ((max - min) / 4) / (10 ** Math.floor(Math.log10((max - min) / 4 || 1))) <= n) || 1);
+                return Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => Math.ceil(min / step) * step + i * step);
+            };
+
+            ctx.clearRect(0, 0, w, h);
+            ctx.font = "12px system-ui, sans-serif";
+            ctx.fillStyle = "#9ca3af";
+            ctx.strokeStyle = "#e5e7eb";
+            ctx.lineWidth = 1;
+
+            ctx.beginPath();
+
+            ctx.textAlign = "right";
+            ctx.textBaseline = "middle";
+            for (const tick of getTicks(min, max)) {
+                const y = top + plotH - ((tick - min) / (max - min)) * plotH;
+                ctx.fillText(Number.isInteger(tick) ? tick : tick.toFixed(2), left - 16, y);
+                ctx.moveTo(left, Math.round(y) + 0.5);
+                ctx.lineTo(w - right, Math.round(y) + 0.5);
+            }
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            for (const tick of getTicks(0, xMax)) {
+                const x = left + (tick / xMax) * plotW;
+                ctx.fillText(Math.round(tick), x, top + plotH + 12);
+                ctx.moveTo(Math.round(x) + 0.5, top);
+                ctx.lineTo(Math.round(x) + 0.5, top + plotH);
+            }
+            ctx.stroke();
+
+            ctx.fillStyle = "#4b5563";
+            ctx.font = "600 13px system-ui, sans-serif";
+            ctx.fillText("Index", left + plotW / 2, h - 10);
+            
+            ctx.save();
+            ctx.translate(10, top + plotH / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText("Value", 0, 0);
+            ctx.restore();
+
+            ctx.strokeStyle = "#ef4444";
+            ctx.lineWidth = 2;
+            ctx.lineJoin = "round";
+            ctx.beginPath();
+            
+            for (let i = 0; i < data.length; i++) {
+                const x = left + (i / xMax) * plotW;
+                const y = top + plotH - ((data[i] - min) / (max - min)) * plotH;
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+    };
+</script>
+
+<style>
+    .line-chart {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+    }
+
+    .line-chart-title {
+        text-align: center;
+        font: 600 13px system-ui, sans-serif;
+        color: #4b5563;
+        padding-bottom: 12px;
+    }
+
+    .line-chart-host {
+        flex: 1;
+        position: relative;
+        min-height: 0;
+    }
+
+    .line-chart-host canvas {
+        position: absolute;
+        inset: 0;
+        display: block;
+    }
+</style>
+
+@code {
+    private ElementReference _canvas;
+    private bool _ready;
+
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public IReadOnlyList<double> Data { get; set; } = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("LineChart.init", _canvas);
+            _ready = true;
+        }
+
+        if (_ready)
+            await JS.InvokeVoidAsync("LineChart.update", _canvas, Data);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_ready) await JS.InvokeVoidAsync("LineChart.dispose", _canvas);
+        }
+        catch { }
+    }
+}
