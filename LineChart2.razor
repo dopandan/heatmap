@@ -13,6 +13,7 @@
 </div>
 
 <script>
+    // Use ??= to ensure this object is only created once, even if multiple charts exist on the page.
     window.LineChart ??= {
         render(canvas, data) {
             canvas._data = data;
@@ -30,6 +31,7 @@
         },
 
         draw(canvas) {
+            // Destructure for cleaner, faster property access
             const { _data: data, parentElement: parent } = canvas;
             if (!data?.length || !parent) return;
 
@@ -38,6 +40,7 @@
             // Prevent drawing if the container is hidden or squished to 0
             if (width <= 0 || height <= 0) return;
 
+            // 1. Centralized CSS-Variable Theme Resolution
             const computed = getComputedStyle(canvas);
             const css = (prop, fallback) => computed.getPropertyValue(prop).trim() || fallback;
             
@@ -52,6 +55,7 @@
                 lineWidth: parseFloat(css('--lc-line-width', '2'))
             };
 
+            // 2. Layout & High-DPI Canvas Setup
             const ratio = window.devicePixelRatio || 1;
             canvas.style.width = `${width}px`;
             canvas.style.height = `${height}px`;
@@ -86,6 +90,7 @@
             const getX = (index) => left + (index / xMax) * plotWidth;
             const getY = (value) => top + plotHeight - ((value - min) / (max - min)) * plotHeight;
 
+            // 3. Smart Tick Generator
             const getTicks = (start, end, forceInteger) => {
                 const range = end - start || 1;
                 const magnitude = 10 ** Math.floor(Math.log10(range / 4));
@@ -100,6 +105,7 @@
                     if (v > start + epsilon) ticks.push(v);
                 }
                     
+                // Filter out nice ticks that overlap with our forced exact min/max
                 if (ticks.length > 0 && (ticks[0] - start) / range < 0.15) ticks.shift();
                 if (ticks.length > 0 && (end - ticks[ticks.length - 1]) / range < 0.15) ticks.pop();
                 
@@ -108,12 +114,14 @@
 
             ctx.clearRect(0, 0, width, height);
             
+            // 4. Draw Grid & Axes
             ctx.font = theme.axisFont;
             ctx.fillStyle = theme.axisTextColor;
             ctx.strokeStyle = theme.gridColor;
             ctx.lineWidth = theme.gridLineWidth;
             ctx.beginPath();
 
+            // Y-Axis
             ctx.textAlign = "right";
             ctx.textBaseline = "middle";
             for (const tick of getTicks(min, max, false)) {
@@ -126,6 +134,7 @@
                 ctx.lineTo(width - right, y);
             }
 
+            // X-Axis
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
             for (const tick of getTicks(0, xMax, true)) {
@@ -137,6 +146,7 @@
             }
             ctx.stroke();
 
+            // 5. Draw Titles
             ctx.fillStyle = theme.titleTextColor;
             ctx.font = theme.titleFont;
             ctx.fillText("Index", left + plotWidth / 2, height - 10);
@@ -147,6 +157,7 @@
             ctx.fillText("Value", 0, 0);
             ctx.restore();
 
+            // 6. Draw Trend Line
             ctx.strokeStyle = theme.lineColor;
             ctx.lineWidth = theme.lineWidth;
             ctx.lineJoin = "round";
@@ -164,6 +175,7 @@
 
 <style>
     .line-chart {
+        /* CSS API - Override these on parent elements to theme the chart */
         --lc-axis-font: 12px system-ui, sans-serif;
         --lc-axis-text-color: #9ca3af;
         --lc-grid-color: #e5e7eb;
@@ -220,6 +232,7 @@
         }
         catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException)
         {
+            // Safely ignore teardown errors when the user navigates away or closes the browser
         }
     }
 }
