@@ -14,105 +14,151 @@
 
 <script>
     window.LineChart = {
-        _state: new WeakMap(),
+        render(canvas, data) {
+            // Attach data directly to the DOM element to avoid WeakMap boilerplate
+            canvas._data = data;
 
-        init(canvas) {
-            const resize = new ResizeObserver(() => this.draw(canvas));
-            resize.observe(canvas.parentElement);
-            this._state.set(canvas, { resize, data: [] });
-        },
-
-        update(canvas, data) {
-            const state = this._state.get(canvas);
-            if (state) {
-                state.data = data;
-                this.draw(canvas);
+            // Initialize the ResizeObserver exactly once per canvas
+            if (!canvas._resizeObserver) {
+                canvas._resizeObserver = new ResizeObserver(() => this.draw(canvas));
+                canvas._resizeObserver.observe(canvas.parentElement);
             }
+
+            this.draw(canvas);
         },
 
         dispose(canvas) {
-            const state = this._state.get(canvas);
-            if (state) state.resize.disconnect();
-            this._state.delete(canvas);
+            if (canvas._resizeObserver) {
+                canvas._resizeObserver.disconnect();
+            }
         },
 
         draw(canvas) {
-            const state = this._state.get(canvas);
-            if (!state || !state.data.length) return;
-
+            const data = canvas._data;
             const parent = canvas.parentElement;
-            const ratio = window.devicePixelRatio || 1;
-            const w = parent.clientWidth, h = parent.clientHeight;
-            
-            canvas.style.width = `${w}px`;
-            canvas.style.height = `${h}px`;
-            canvas.width = Math.round(w * ratio);
-            canvas.height = Math.round(h * ratio);
 
-            const ctx = canvas.getContext("2d", { desynchronized: true });
+            if (!data || data.length === 0 || !parent) {
+                return;
+            }
+
+            // Handle High-DPI & 100% Container Fill
+            const ratio = window.devicePixelRatio || 1;
+            const width = parent.clientWidth;
+            const height = parent.clientHeight;
+            
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            canvas.width = width * ratio;
+            canvas.height = height * ratio;
+
+            const ctx = canvas.getContext("2d");
             ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-            const left = 70, right = 30, top = 20, bottom = 60;
-            const plotW = w - left - right, plotH = h - top - bottom;
-            const data = state.data;
+            // Layout Math
+            const left = 70;
+            const right = 30;
+            const top = 20;
+            const bottom = 60;
+            const plotWidth = width - left - right;
+            const plotHeight = height - top - bottom;
+
             const xMax = Math.max(1, data.length - 1);
+            let min = Math.min(...data);
+            let max = Math.max(...data);
 
-            let min = Math.min(...data), max = Math.max(...data);
-            if (min === max) { min -= 1; max += 1; }
-            else { const pad = (max - min) * 0.1; min -= pad; max += pad; }
+            if (min === max) {
+                min -= 1;
+                max += 1;
+            }
 
-            const getTicks = (min, max) => {
-                const step = (10 ** Math.floor(Math.log10((max - min) / 4 || 1))) * 
-                             ([1, 2, 5, 10].find(n => ((max - min) / 4) / (10 ** Math.floor(Math.log10((max - min) / 4 || 1))) <= n) || 1);
-                return Array.from({ length: Math.floor((max - min) / step) + 1 }, (_, i) => Math.ceil(min / step) * step + i * step);
+            // Coordinate Helpers
+            const getX = (index) => left + (index / xMax) * plotWidth;
+            const getY = (value) => top + plotHeight - ((value - min) / (max - min)) * plotHeight;
+
+            // Unified Tick Generator (Handles both X and Y axes)
+            const getTicks = (start, end, forceInteger) => {
+                const range = end - start || 1;
+                const magnitude = 10 ** Math.floor(Math.log10(range / 4));
+                let step = magnitude * [1, 2, 5, 10].find(n => (range / 4) / magnitude <= n);
+                
+                if (forceInteger) {
+                    step = Math.max(1, Math.round(step));
+                }
+                
+                const ticks = [];
+                const epsilon = step * 0.01;
+                
+                for (let v = Math.ceil(start / step) * step; v < end - epsilon; v += step) {
+                    if (v > start + epsilon) {
+                        ticks.push(v);
+                    }
+                }
+                    
+                // Filter out nice ticks that overlap with our forced exact min/max
+                if (ticks.length > 0 && (ticks[0] - start) / range < 0.15) ticks.shift();
+                if (ticks.length > 0 && (end - ticks[ticks.length - 1]) / range < 0.15) ticks.pop();
+                
+                return [start, ...ticks, end];
             };
 
-            ctx.clearRect(0, 0, w, h);
+            // Draw Grid & Labels
+            ctx.clearRect(0, 0, width, height);
             ctx.font = "12px system-ui, sans-serif";
             ctx.fillStyle = "#9ca3af";
             ctx.strokeStyle = "#e5e7eb";
             ctx.lineWidth = 1;
-
             ctx.beginPath();
 
+            // Y-Axis
             ctx.textAlign = "right";
             ctx.textBaseline = "middle";
-            for (const tick of getTicks(min, max)) {
-                const y = top + plotH - ((tick - min) / (max - min)) * plotH;
-                ctx.fillText(Number.isInteger(tick) ? tick : tick.toFixed(2), left - 16, y);
-                ctx.moveTo(left, Math.round(y) + 0.5);
-                ctx.lineTo(w - right, Math.round(y) + 0.5);
+            for (const tick of getTicks(min, max, false)) {
+                const y = getY(tick);
+                const label = Number.isInteger(tick) ? tick : parseFloat(tick.toFixed(2));
+                
+                ctx.fillText(label, left - 16, y);
+                ctx.moveTo(left, y);
+                ctx.lineTo(width - right, y);
             }
 
+            // X-Axis
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
-            for (const tick of getTicks(0, xMax)) {
-                const x = left + (tick / xMax) * plotW;
-                ctx.fillText(Math.round(tick), x, top + plotH + 12);
-                ctx.moveTo(Math.round(x) + 0.5, top);
-                ctx.lineTo(Math.round(x) + 0.5, top + plotH);
+            for (const tick of getTicks(0, xMax, true)) {
+                const x = getX(tick);
+                
+                ctx.fillText(Math.round(tick), x, top + plotHeight + 12);
+                ctx.moveTo(x, top);
+                ctx.lineTo(x, top + plotHeight);
             }
             ctx.stroke();
 
+            // Draw Axes Titles
             ctx.fillStyle = "#4b5563";
             ctx.font = "600 13px system-ui, sans-serif";
-            ctx.fillText("Index", left + plotW / 2, h - 10);
+            ctx.fillText("Index", left + plotWidth / 2, height - 10);
             
             ctx.save();
-            ctx.translate(10, top + plotH / 2);
+            ctx.translate(10, top + plotHeight / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.fillText("Value", 0, 0);
             ctx.restore();
 
+            // Draw Trend Line
             ctx.strokeStyle = "#ef4444";
             ctx.lineWidth = 2;
             ctx.lineJoin = "round";
             ctx.beginPath();
             
             for (let i = 0; i < data.length; i++) {
-                const x = left + (i / xMax) * plotW;
-                const y = top + plotH - ((data[i] - min) / (max - min)) * plotH;
-                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                const x = getX(i);
+                const y = getY(data[i]);
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
             }
             ctx.stroke();
         }
@@ -125,7 +171,6 @@
         flex-direction: column;
         width: 100%;
         height: 100%;
-        box-sizing: border-box;
     }
 
     .line-chart-title {
@@ -144,35 +189,31 @@
     .line-chart-host canvas {
         position: absolute;
         inset: 0;
-        display: block;
     }
 </style>
 
 @code {
     private ElementReference _canvas;
-    private bool _ready;
 
-    [Parameter] public string Title { get; set; } = string.Empty;
-    [Parameter, EditorRequired] public IReadOnlyList<double> Data { get; set; } = [];
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<double> Data { get; set; } = [];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            await JS.InvokeVoidAsync("LineChart.init", _canvas);
-            _ready = true;
-        }
-
-        if (_ready)
-            await JS.InvokeVoidAsync("LineChart.update", _canvas, Data);
+        await JS.InvokeVoidAsync("LineChart.render", _canvas, Data);
     }
 
     public async ValueTask DisposeAsync()
     {
         try
         {
-            if (_ready) await JS.InvokeVoidAsync("LineChart.dispose", _canvas);
+            await JS.InvokeVoidAsync("LineChart.dispose", _canvas);
         }
-        catch { }
+        catch
+        {
+        }
     }
 }
