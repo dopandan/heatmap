@@ -1,0 +1,127 @@
+# Blazor `[Parameter]` Design Ledger 
+
+Use this ledger to audit Blazor component `[Parameter]` properties for application-level components. Goal: parameters that are parent-owned, obvious in Razor markup, safe under rerendering, consistent, minimal, and hard to misuse.
+
+## Core Contract
+
+1. Expose a `[Parameter]` only when the parent should control/configure it.
+2. Parameters are public properties with `{ get; set; }`, not fields/private props.
+3. Do not write directly to received parameters after render; use private state or `XChanged`.
+4. Names must describe public API intent, not implementation details.
+5. Parent markup should read naturally without opening the component file.
+6. Minimize API surface; expose semantic knobs, not every CSS/internal detail.
+7. Parameter count smell: 0–3 simple, 4–8 normal, 9–12 review, 13+ likely split/group.
+8. Mark truly required params with `[EditorRequired]`; avoid overusing it.
+9. Optional params need safe defaults: strings `string.Empty`, collections `[]`, templates nullable.
+10. Nullability must mean something; use `?` only when `null` is a valid state.
+
+## Type Selection
+
+11. Use primitives for simple values: `string`, `bool`, `int`, `double`.
+12. Use model params when values naturally travel together.
+13. Do not mutate model parameters unless component is explicitly an editor.
+14. Use `IReadOnlyList<T>` for display collections; avoid `List<T>` unless mutation is contract.
+15. Expose clear identity for selectable/reorderable/clickable collections.
+16. Boolean names should be positive: `Is`, `Has`, `Can`, `Should`, `Show`, `Allow`, `Enable`, `Use`.
+17. Replace mutually exclusive booleans with enums.
+18. Use enums for finite choices; avoid stringly-typed states.
+19. Use `Size` enum instead of width/height/padding knobs when size is semantic.
+20. Use `Variant` enum for visual/structural modes.
+21. Use `Severity` enum for status meaning: `Info`, `Success`, `Warning`, `Error`.
+22. Use `Value` for input-like components with one primary value; use domain names when clearer.
+23. Bindable params follow exact pair: `X` + `EventCallback<T> XChanged`.
+24. Controlled state belongs to parent: child receives `X`, requests change via `XChanged`.
+25. Initial-only state uses `InitialX` or `DefaultX`, never a name implying ongoing control.
+
+## Events / Callbacks
+
+26. Use `EventCallback` / `EventCallback<T>`, not `Action` / `Func<Task>`.
+27. Event names should describe events/requests: `OnClicked`, `OnClosed`, `OnSaveRequested`.
+28. Use `EventCallback<T>` when parent needs event data.
+29. Use small event args records instead of unclear tuples for multi-value events.
+30. Callbacks are usually optional; invoke with `await Callback.InvokeAsync(...)`.
+31. Use `Requested` when parent must decide whether action happens.
+32. Callback-invoking handlers should be `async Task`, not fire-and-forget `void`.
+
+## Styling / Attributes / Accessibility
+
+33. Expose root `Class` when parent styling/layout hooks are useful.
+34. Expose `Style` only as an escape hatch, usually for dynamic CSS variables/layout.
+35. Use `[Parameter(CaptureUnmatchedValues = true)] IReadOnlyDictionary<string, object>? AdditionalAttributes`.
+36. Name unmatched attributes exactly `AdditionalAttributes`.
+37. Expose accessibility params only when needed: `AriaLabel`, `AriaDescribedBy`, etc.
+38. Expose `Id` when needed for labels, ARIA, tests, JS interop, or external reference.
+39. Generate internal IDs when needed and no `Id` is supplied.
+40. Prefer `Class`/`Style`/`AdditionalAttributes` over many CSS-specific parameters.
+41. Do not expose layout params unless the component’s purpose is layout.
+42. Parent controls external layout; component controls internal layout.
+43. Avoid params like `BackgroundColor`, `Padding`, `MarginTop` unless truly semantic.
+44. Prefer semantic params like `Severity`, `Variant`, `Size`.
+
+## Content / Templates
+
+45. Use `ChildContent` for primary nested arbitrary markup.
+46. Use named `RenderFragment`s for stable slots: `HeaderContent`, `FooterContent`, `StartContent`, `EndContent`.
+47. Use `RenderFragment<T>` when parent controls item rendering.
+48. Template names should be conventional: `ItemTemplate`, `RowTemplate`, `EmptyTemplate`, `LoadingTemplate`.
+49. Use text params for simple content; fragments for rich markup.
+50. If both text and fragment exist, fragment wins: `TitleContent ?? Title`.
+51. `Label` = form/control label; `Title` = section/card/dialog heading; `Text` = simple inline display.
+52. `Description` = supporting text; `Placeholder` = input hint; `EmptyText` = no-data fallback.
+53. Do not expose both `Text` and `ChildContent` unless both are genuinely valuable.
+
+## State Parameters
+
+54. Prefer `ErrorText` nullable and derive `HasError`; avoid duplicated inconsistent `HasError + ErrorText` unless needed.
+55. Use `IsLoading` for loading state.
+56. Use `LoadingText` only if parent needs custom loading copy.
+57. Use `EmptyText` for simple empty state; `EmptyContent` for rich empty state.
+58. Use `IsDisabled` for unavailable controls.
+59. Use `IsReadOnly` for viewable/focusable/copyable but non-editable values.
+60. Use `ShowX`, not `HideX`, for optional rendered sections.
+61. Use `CanX` for current capability/permission.
+62. Use `AllowX` for component configuration capability.
+63. Avoid conflicting params like `IsOpen` + `IsClosed`, or `IsSuccess` + `IsError`.
+64. Derive internal state when possible instead of requiring parent to pass duplicates.
+65. Use fail-safe state for dashboards/operator UIs: invalid/loading/error should not imply safe/active.
+
+## Common Parameter Shapes
+
+66. Numeric controls: `Value`, `ValueChanged`, `Min`, `Max`, `Step`.
+67. Values with units: separate `Value` and `Unit`, not `"42 mm"` strings.
+68. Formatting: expose `Format` for simple format strings; use formatter/template only if needed.
+69. Date/time params should be `DateTime`/`DateTimeOffset`, not strings.
+70. Search: `SearchText`, `SearchTextChanged`, `Placeholder`.
+71. Pagination: `Page`, `PageSize`, `TotalItems`, `PageChanged`, `PageSizeChanged`.
+72. Sorting: `SortColumn`, `SortDirection` enum, `SortChanged`.
+73. Dialogs/dropdowns/popovers: `IsOpen`, `IsOpenChanged`, `Title`, `OnCloseRequested`.
+74. Tabs: use `SelectedTabId` for dynamic tabs; `SelectedIndex` only for stable static order.
+75. Input components: `Label`, `Value`, `ValueChanged`, `IsDisabled`, `IsReadOnly`, `Placeholder`, `Description`, `ErrorText`, `Id`, `Class`.
+76. Button components: `Text`, `Variant`, `Size`, `IsDisabled`, `IsLoading`, `AriaLabel`, `OnClicked`, optional `ChildContent`, `Class`, `Style`.
+77. Card components: `Title`, `Description`, `HeaderContent`, `ChildContent`, `FooterContent`, `IsLoading`, `ErrorText`, `Class`, `Style`.
+78. Tables/lists: `Items`, optional `RowTemplate`/`ItemTemplate`, `HeaderTemplate`, `IsLoading`, `EmptyText`, selection callback.
+79. Status/badge/alert: `Text`, `Severity`, `IsVisible`, `AriaLabel`, `Class`.
+80. Chart/canvas: `Data`, `Title`, axis labels, `IsLoading`, `EmptyText`, `AriaLabel`, `Class`, `Style`.
+81. Industrial controls: params must make state/safety obvious: `IsEnabled`, `IsRunning`, `HasFault`, `FaultText`, `OnStartRequested`, `OnStopRequested`.
+
+## Design Smells
+
+82. Avoid `object` unless component is intentionally generic.
+83. Do not over-engineer simple params into config objects too early.
+84. Use config objects only for large cohesive settings groups; do not hide main API inside `Options`.
+85. Check natural parameter pairs: `Value/ValueChanged`, `Label/Description`, `Min/Max`, `IsOpen/IsOpenChanged`.
+86. Avoid vague names/collisions: `Type`, `Data`, `Info`, `Flag`, `Option`, `Payload`, `Value2`, `Text1`.
+87. Use app-wide vocabulary consistently: do not mix `Disabled`, `IsDisabled`, `Disable`.
+88. Remove duplicate parameters that solve the same problem.
+89. Parameters should express what the component does, not how internals work.
+90. Use `Orientation` enum instead of `IsVertical` when horizontal/vertical is semantic.
+91. Avoid surprising lifecycle trigger params like `ResetInternalStateNow`; use `ResetVersion`/`RefreshKey`.
+92. Normalize with internal computed values; do not mutate parameters in `OnParametersSet`.
+93. Name normalized/fallback internals `EffectiveX`; never expose `EffectiveX` as parameter.
+94. Validate impossible parameter combinations early, usually in `OnParametersSet`.
+95. For invalid params, prefer safe fallback/disabled/error state over misleading UI.
+96. Comment only non-obvious parameter contracts: initial-only, constraints, interactions.
+97. Remove obsolete app-level params quickly; use `[Obsolete]` only temporarily.
+98. Do not pass services/infrastructure as parameters; inject services or pass data.
+99. Do not replace clear explicit params with cascading values just to reduce markup.
+100. Route params may be strings; normal component params should use rich/domain types when appropriate.
