@@ -1,0 +1,356 @@
+<div class="edge-visualizer @Class">
+    <header class="edge-visualizer__header">
+        <div class="edge-visualizer__title">
+            @Title
+        </div>
+
+        @if (_validFrames.Count > 0)
+        {
+            <div class="edge-visualizer__controls" role="toolbar" aria-label="Time navigation">
+                <button
+                    class="edge-visualizer__button"
+                    type="button"
+                    disabled="@IsOlderDisabled"
+                    aria-label="View older frame"
+                    @onclick="HandleOlderClicked">
+                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <line x1="6" y1="4" x2="6" y2="20"></line>
+                        <polyline points="18 4 8 12 18 20"></polyline>
+                    </svg>
+                    Older
+                </button>
+
+                <time class="edge-visualizer__timestamp" datetime="@CurrentFrame?.Timestamp">
+                    @CurrentFrame?.Timestamp
+                </time>
+
+                <button
+                    class="edge-visualizer__button"
+                    type="button"
+                    disabled="@IsNewerDisabled"
+                    aria-label="View newer frame"
+                    @onclick="HandleNewerClicked">
+                    Newer
+                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <polyline points="6 4 16 12 6 20"></polyline>
+                        <line x1="18" y1="4" x2="18" y2="20"></line>
+                    </svg>
+                </button>
+            </div>
+        }
+    </header>
+
+    <div class="edge-visualizer__body">
+        @if (_validFrames.Count == 0)
+        {
+            <div class="edge-visualizer__empty" role="status">
+                Waiting for data...
+            </div>
+        }
+        else if (CurrentFrame != null)
+        {
+            <svg class="edge-visualizer__graph" aria-label="Edge detection visualization">
+                <line class="edge-visualizer__axis" x1="5%" y1="50%" x2="95%" y2="50%" />
+                
+                @if (CurrentFrame.OpenSide is OpenSide.Left or OpenSide.Both)
+                {
+                    <g class="edge-visualizer__group">
+                        <circle class="edge-visualizer__point edge-visualizer__point--left" cx="@GetXPercent(CurrentFrame.OpenLeftX)%" cy="50%" r="8" />
+                        <text class="edge-visualizer__label edge-visualizer__label--left" x="@GetXPercent(CurrentFrame.OpenLeftX)%" y="35%">
+                            L: @CurrentFrame.OpenLeftX.ToString("0.0")
+                        </text>
+                    </g>
+                }
+                
+                @if (CurrentFrame.OpenSide is OpenSide.Right or OpenSide.Both)
+                {
+                    <g class="edge-visualizer__group">
+                        <circle class="edge-visualizer__point edge-visualizer__point--right" cx="@GetXPercent(CurrentFrame.OpenRightX)%" cy="50%" r="8" />
+                        <text class="edge-visualizer__label edge-visualizer__label--right" x="@GetXPercent(CurrentFrame.OpenRightX)%" y="70%">
+                            R: @CurrentFrame.OpenRightX.ToString("0.0")
+                        </text>
+                    </g>
+                }
+            </svg>
+        }
+    </div>
+</div>
+
+<style>
+    /* Root */
+    .edge-visualizer {
+        /* Color Variables Only */
+        --edge-visualizer-bg: #ffffff;
+        --edge-visualizer-header-bg: #f8fafc;
+        --edge-visualizer-border: #e2e8f0;
+        --edge-visualizer-text: #0f172a;
+        --edge-visualizer-muted: #64748b;
+        --edge-visualizer-accent-hover: #f1f5f9;
+        --edge-visualizer-left: #ef4444;
+        --edge-visualizer-right: #3b82f6;
+
+        display: flex;
+        flex-direction: column;
+
+        width: 100%;
+        height: 100%;
+        min-width: min-content; /* Forces container to wrap its contents */
+
+        border: 1px solid var(--edge-visualizer-border);
+        border-radius: 0.5rem;
+        box-sizing: border-box;
+
+        background: var(--edge-visualizer-bg);
+
+        color: var(--edge-visualizer-text);
+        font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    /* Header */
+    .edge-visualizer__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--edge-visualizer-border);
+
+        background: var(--edge-visualizer-header-bg);
+    }
+
+    .edge-visualizer__title {
+        margin: 0;
+
+        font-size: 1rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    /* Controls */
+    .edge-visualizer__controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .edge-visualizer__button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.375rem;
+
+        padding: 0.25rem 0.75rem;
+        border: 1px solid var(--edge-visualizer-border);
+        border-radius: 0.25rem;
+
+        background: var(--edge-visualizer-bg);
+
+        color: var(--edge-visualizer-text);
+        font-size: 0.875rem;
+        font-family: inherit;
+        white-space: nowrap;
+
+        cursor: pointer;
+        transition: background-color 120ms ease;
+    }
+
+    .edge-visualizer__button:hover:not(:disabled) {
+        background: var(--edge-visualizer-accent-hover);
+    }
+
+    .edge-visualizer__button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .edge-visualizer__icon {
+        width: 1rem;
+        height: 1rem;
+
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2px;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .edge-visualizer__timestamp {
+        min-width: 6rem;
+
+        color: var(--edge-visualizer-muted);
+        font-size: 0.875rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+    }
+
+    /* Body */
+    .edge-visualizer__body {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        min-height: 150px;
+        padding: 1rem;
+    }
+
+    .edge-visualizer__empty {
+        color: var(--edge-visualizer-muted);
+        font-style: italic;
+    }
+
+    /* Graph */
+    .edge-visualizer__graph {
+        display: block;
+
+        width: 100%;
+        height: 100%;
+    }
+
+    .edge-visualizer__axis {
+        stroke: var(--edge-visualizer-border);
+        stroke-width: 2px;
+    }
+
+    .edge-visualizer__point--left {
+        fill: var(--edge-visualizer-left);
+    }
+
+    .edge-visualizer__point--right {
+        fill: var(--edge-visualizer-right);
+    }
+
+    .edge-visualizer__label {
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-anchor: middle;
+    }
+
+    .edge-visualizer__label--left {
+        fill: var(--edge-visualizer-left);
+    }
+
+    .edge-visualizer__label--right {
+        fill: var(--edge-visualizer-right);
+    }
+</style>
+
+@code {
+    public enum OpenSide 
+    { 
+        None, 
+        Left, 
+        Right, 
+        Both 
+    }
+
+    public class DetectedEdge
+    {
+        public OpenSide OpenSide { get; set; }
+        public double OpenLeftX { get; set; } = -1;
+        public double OpenRightX { get; set; } = -1;
+        public string Timestamp { get; set; } = string.Empty;
+    }
+
+    [Parameter] 
+    public string Title { get; set; } = "Edge Stream";
+    
+    [Parameter] 
+    public IEnumerable<DetectedEdge> Data { get; set; } = Array.Empty<DetectedEdge>();
+    
+    [Parameter] 
+    public string? Class { get; set; }
+
+    private List<DetectedEdge> _validFrames = new();
+    private int _currentIndex = -1;
+    private double _maxX = 100;
+
+    private DetectedEdge? CurrentFrame
+    {
+        get
+        {
+            if (_currentIndex >= 0 && _currentIndex < _validFrames.Count)
+            {
+                return _validFrames[_currentIndex];
+            }
+            
+            return null;
+        }
+    }
+
+    private bool IsOlderDisabled => _currentIndex <= 0;
+    private bool IsNewerDisabled => _currentIndex >= _validFrames.Count - 1;
+
+    protected override void OnParametersSet()
+    {
+        if (Data == null)
+        {
+            return;
+        }
+
+        bool wasAtLatest = _currentIndex == _validFrames.Count - 1 || _validFrames.Count == 0;
+        string? currentTimestamp = CurrentFrame?.Timestamp;
+
+        _validFrames = Data.Where(p => p.OpenSide != OpenSide.None).ToList();
+
+        if (_validFrames.Count > 0)
+        {
+            double maxLeft = _validFrames.Max(f => f.OpenLeftX);
+            double maxRight = _validFrames.Max(f => f.OpenRightX);
+            double absoluteMax = Math.Max(maxLeft, maxRight);
+            
+            _maxX = Math.Max(100, absoluteMax);
+
+            if (wasAtLatest)
+            {
+                _currentIndex = _validFrames.Count - 1;
+            }
+            else if (currentTimestamp != null)
+            {
+                int idx = _validFrames.FindIndex(f => f.Timestamp == currentTimestamp);
+                
+                if (idx != -1)
+                {
+                    _currentIndex = idx;
+                }
+                else
+                {
+                    _currentIndex = _validFrames.Count - 1;
+                }
+            }
+        }
+        else
+        {
+            _currentIndex = -1;
+        }
+    }
+
+    private void HandleOlderClicked()
+    {
+        if (!IsOlderDisabled)
+        {
+            _currentIndex--;
+        }
+    }
+
+    private void HandleNewerClicked()
+    {
+        if (!IsNewerDisabled)
+        {
+            _currentIndex++;
+        }
+    }
+
+    private double GetXPercent(double val)
+    {
+        if (_maxX <= 0)
+        {
+            return 5;
+        }
+        
+        double ratio = val / _maxX;
+        return 5 + (ratio * 90);
+    }
+}
