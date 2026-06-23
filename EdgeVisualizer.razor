@@ -1,91 +1,100 @@
+<!-- Root -->
 <div class="edge-visualizer @Class">
-    <header class="edge-visualizer__header">
+    
+    <!-- Header -->
+    <div class="edge-visualizer__header">
+        
+        <!-- Title -->
         <div class="edge-visualizer__title">
             @Title
         </div>
 
-        @if (_validFrames.Count > 0)
+        <!-- Controls -->
+        @if (_edges.Count > 0)
         {
-            <div class="edge-visualizer__controls" role="toolbar" aria-label="Time navigation">
+            <div class="edge-visualizer__controls">
+
+                @* Prev Edge *@
                 <button
                     class="edge-visualizer__button"
                     type="button"
-                    disabled="@IsOlderDisabled"
-                    aria-label="View older frame"
-                    @onclick="HandleOlderClicked">
-                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24" aria-hidden="true">
+                    disabled="@IsPrevEdgeDisabled"
+                    @onclick="HandleOlderEdgeClicked">
+                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24">
                         <line x1="6" y1="4" x2="6" y2="20"></line>
                         <polyline points="18 4 8 12 18 20"></polyline>
                     </svg>
                     Older
                 </button>
 
-                <time class="edge-visualizer__timestamp" datetime="@CurrentFrame?.Timestamp">
-                    @CurrentFrame?.Timestamp
+                @* Timestamp *@
+                <time class="edge-visualizer__timestamp" datetime="@CurrentEdge?.Timestamp">
+                    @CurrentEdge?.Timestamp
                 </time>
 
+                 @* Next Edge *@
                 <button
                     class="edge-visualizer__button"
                     type="button"
-                    disabled="@IsNewerDisabled"
-                    aria-label="View newer frame"
-                    @onclick="HandleNewerClicked">
+                    disabled="@IsNextEdgeDisabled"
+                    @onclick="HandleNewerEdgeClicked">
                     Newer
-                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24">
                         <polyline points="6 4 16 12 6 20"></polyline>
                         <line x1="18" y1="4" x2="18" y2="20"></line>
                     </svg>
                 </button>
+                
             </div>
         }
-    </header>
+    </div>
 
+    <!-- Body -->
     <div class="edge-visualizer__body">
-        @if (_validFrames.Count == 0)
+        
+        @* Edge Graph *@
+        @if (CurrentEdge != null && edges.Count > 0)
         {
-            <div class="edge-visualizer__empty" role="status">
-                Waiting for data...
-            </div>
-        }
-        else if (CurrentFrame != null)
-        {
-            <svg class="edge-visualizer__graph" aria-label="Edge detection visualization">
+            <svg class="edge-visualizer__graph">
                 <line class="edge-visualizer__axis" x1="5%" y1="50%" x2="95%" y2="50%" />
                 
-                @if (CurrentFrame.OpenSide is OpenSide.Left or OpenSide.Both)
+                @* Left Edge *@
+                @if (CurrentEdge.OpenSide is OpenSide.Left or OpenSide.Both)
                 {
                     <g class="edge-visualizer__group">
-                        <circle class="edge-visualizer__point edge-visualizer__point--left" cx="@GetXPercent(CurrentFrame.OpenLeftX)%" cy="50%" r="8" />
-                        <text class="edge-visualizer__label edge-visualizer__label--left" x="@GetXPercent(CurrentFrame.OpenLeftX)%" y="35%">
-                            L: @CurrentFrame.OpenLeftX.ToString("0.0")
+                        <circle class="edge-visualizer__point edge-visualizer__point--left" cx="@GetXAxisPercent(CurrentEdge.OpenLeftX)%" cy="50%" r="8" />
+                        <text class="edge-visualizer__label edge-visualizer__label--left" x="@GetXAxisPercent(CurrentEdge.OpenLeftX)%" y="35%">
+                            L: @CurrentEdge.OpenLeftX.ToString("0.0")
                         </text>
                     </g>
                 }
                 
-                @if (CurrentFrame.OpenSide is OpenSide.Right or OpenSide.Both)
+                @* Right Edge *@
+                @if (CurrentEdge.OpenSide is OpenSide.Right or OpenSide.Both)
                 {
                     <g class="edge-visualizer__group">
-                        <circle class="edge-visualizer__point edge-visualizer__point--right" cx="@GetXPercent(CurrentFrame.OpenRightX)%" cy="50%" r="8" />
-                        <text class="edge-visualizer__label edge-visualizer__label--right" x="@GetXPercent(CurrentFrame.OpenRightX)%" y="70%">
-                            R: @CurrentFrame.OpenRightX.ToString("0.0")
+                        <circle class="edge-visualizer__point edge-visualizer__point--right" cx="@GetXAxisPercent(CurrentEdge.OpenRightX)%" cy="50%" r="8" />
+                        <text class="edge-visualizer__label edge-visualizer__label--right" x="@GetXAxisPercent(CurrentEdge.OpenRightX)%" y="70%">
+                            R: @CurrentEdge.OpenRightX.ToString("0.0")
                         </text>
                     </g>
                 }
+                
             </svg>
         }
+        
     </div>
 </div>
 
 <style>
     /* Root */
     .edge-visualizer {
-        /* Color Variables Only */
+        /* Color Theme */
         --edge-visualizer-bg: #ffffff;
         --edge-visualizer-header-bg: #f8fafc;
-        --edge-visualizer-border: #e2e8f0;
+        --edge-visualizer-axis: #e2e8f0;
         --edge-visualizer-text: #0f172a;
-        --edge-visualizer-muted: #64748b;
-        --edge-visualizer-accent-hover: #f1f5f9;
+        --edge-visualizer-muted: #64748b;;
         --edge-visualizer-left: #ef4444;
         --edge-visualizer-right: #3b82f6;
 
@@ -96,14 +105,9 @@
         height: 100%;
         min-width: min-content;
 
-        border: 1px solid var(--edge-visualizer-border);
-        border-radius: 0.5rem;
-        box-sizing: border-box;
-
         background: var(--edge-visualizer-bg);
 
         color: var(--edge-visualizer-text);
-        font-family: system-ui, -apple-system, sans-serif;
     }
 
     /* Header */
@@ -114,7 +118,6 @@
         gap: 0.75rem;
 
         padding: 0.75rem 1rem;
-        border-bottom: 1px solid var(--edge-visualizer-border);
 
         background: var(--edge-visualizer-header-bg);
     }
@@ -124,7 +127,6 @@
 
         font-size: 1rem;
         font-weight: 600;
-        white-space: nowrap;
     }
 
     /* Controls */
@@ -141,15 +143,11 @@
         gap: 0.375rem;
 
         padding: 0.25rem 0.75rem;
-        border: 1px solid var(--edge-visualizer-border);
-        border-radius: 0.25rem;
 
         background: var(--edge-visualizer-bg);
 
         color: var(--edge-visualizer-text);
         font-size: 0.875rem;
-        font-family: inherit;
-        white-space: nowrap;
 
         cursor: pointer;
         transition: background-color 120ms ease;
@@ -181,7 +179,6 @@
         color: var(--edge-visualizer-muted);
         font-size: 0.875rem;
         font-weight: 600;
-        font-variant-numeric: tabular-nums;
         text-align: center;
     }
 
@@ -198,7 +195,6 @@
 
     .edge-visualizer__empty {
         color: var(--edge-visualizer-muted);
-        font-style: italic;
     }
 
     /* Graph */
@@ -210,7 +206,7 @@
     }
 
     .edge-visualizer__axis {
-        stroke: var(--edge-visualizer-border);
+        stroke: var(--edge-visualizer-axis);
         stroke-width: 2px;
     }
 
@@ -238,143 +234,91 @@
 </style>
 
 @code {
-    public enum OpenSide 
-    { 
-        None, 
-        Left, 
-        Right, 
-        Both 
-    }
+    public enum OpenSide { None, Left, Right, Both }
 
     public class DetectedEdge
     {
-        public OpenSide OpenSide { get; set; }
-        public double OpenLeftX { get; set; } = -1;
+        public OpenSide OpenSide { get; set; } = OpenSide.None;
+        public double OpenLeftX { get; set; } = -1; 
         public double OpenRightX { get; set; } = -1;
         public string Timestamp { get; set; } = string.Empty;
     }
 
-    [Parameter] 
-    public string Title { get; set; } = "Edge Stream";
-    
-    [Parameter] 
-    public IEnumerable<DetectedEdge> Data { get; set; } = Array.Empty<DetectedEdge>();
-    
-    [Parameter] 
-    public string? Class { get; set; }
+    [Parameter] public string Title { get; set; } = "Edge Stream";
+    [Parameter] public IEnumerable<DetectedEdge> Data { get; set; } = Array.Empty<DetectedEdge>();
+    [Parameter] public string? Class { get; set; }
 
-    private List<DetectedEdge> _validFrames = new();
-    private int _currentIndex = -1;
+    private List<DetectedEdge> _edges = new();
+    private int _currentEdgeIndex = -1;
     
-    private double _minX = 0;
-    private double _maxX = 100;
+    private double _minX;
+    private double _maxX;
 
-    private DetectedEdge? CurrentFrame
+    private DetectedEdge? CurrentEdge 
     {
-        get
+        get 
         {
-            if (_currentIndex >= 0 && _currentIndex < _validFrames.Count)
-            {
-                return _validFrames[_currentIndex];
-            }
-            
-            return null;
+            bool isValidIndex = _currentEdgeIndex >= 0 && _currentEdgeIndex < _edges.Count;
+            return isValidIndex ? _edges[_currentEdgeIndex] : null;
         }
     }
 
-    private bool IsOlderDisabled => _currentIndex <= 0;
-    private bool IsNewerDisabled => _currentIndex >= _validFrames.Count - 1;
+    private bool IsPrevEdgeDisabled => _currentEdgeIndex <= 0;
+    private bool IsNextEdgeDisabled => _currentEdgeIndex >= _edges.Count - 1;
 
     protected override void OnParametersSet()
     {
-        if (Data == null)
+        if (Data == null) return;
+
+        _edges = Data.Where(p => p.OpenSide != OpenSide.None).ToList();
+
+        if (_edges.Count == 0)
         {
+            _currentEdgeIndex = -1;
             return;
         }
 
-        bool wasAtLatest = _currentIndex == _validFrames.Count - 1 || _validFrames.Count == 0;
-        string? currentTimestamp = CurrentFrame?.Timestamp;
-
-        _validFrames = Data.Where(p => p.OpenSide != OpenSide.None).ToList();
-
-        if (_validFrames.Count > 0)
-        {
-            // Default baseline scale is 0 to 100
-            double maxVal = 100;
-            double minVal = 0;
-
-            // Safely extract min/max only from valid sides to avoid the -1 default values
-            foreach (var frame in _validFrames)
-            {
-                if (frame.OpenSide is OpenSide.Left or OpenSide.Both)
-                {
-                    maxVal = Math.Max(maxVal, frame.OpenLeftX);
-                    minVal = Math.Min(minVal, frame.OpenLeftX);
-                }
-                
-                if (frame.OpenSide is OpenSide.Right or OpenSide.Both)
-                {
-                    maxVal = Math.Max(maxVal, frame.OpenRightX);
-                    minVal = Math.Min(minVal, frame.OpenRightX);
-                }
-            }
-
-            _maxX = maxVal;
-            _minX = minVal;
-
-            if (wasAtLatest)
-            {
-                _currentIndex = _validFrames.Count - 1;
-            }
-            else if (currentTimestamp != null)
-            {
-                int idx = _validFrames.FindIndex(f => f.Timestamp == currentTimestamp);
-                
-                if (idx != -1)
-                {
-                    _currentIndex = idx;
-                }
-                else
-                {
-                    _currentIndex = _validFrames.Count - 1;
-                }
-            }
-        }
-        else
-        {
-            _currentIndex = -1;
-        }
+        CalculateXAxisBoundaries();
+        
+        _currentEdgeIndex = 0;
     }
 
-    private void HandleOlderClicked()
+    private void CalculateXAxisBoundaries()
     {
-        if (!IsOlderDisabled)
+        _minX = double.MaxValue;
+        _maxX = double.MinValue;
+
+        foreach (var edge in _edges)
         {
-            _currentIndex--;
+            if (edge.OpenSide is OpenSide.Left or OpenSide.Both)
+            {
+                _minX = Math.Min(_minX, edge.OpenLeftX);
+                _maxX = Math.Max(_maxX, edge.OpenLeftX);
+            }
+            
+            if (edge.OpenSide is OpenSide.Right or OpenSide.Both)
+            {
+                _minX = Math.Min(_minX, edge.OpenRightX);
+                _maxX = Math.Max(_maxX, edge.OpenRightX);
+            }
+        }
+
+        if (_minX >= _maxX)
+        {
+            _minX = 0;
+            _maxX = 100;
         }
     }
 
-    private void HandleNewerClicked()
-    {
-        if (!IsNewerDisabled)
-        {
-            _currentIndex++;
-        }
-    }
+    private void HandlePrevEdgeClicked() { if (!IsPrevEdgeDisabled) _currentEdgeIndex--; }
+    private void HandleNextEdgeClicked() { if (!IsNextEdgeDisabled) _currentEdgeIndex++; }
 
-    private double GetXPercent(double val)
+    private double GetXAxisPercent(double val)
     {
         double range = _maxX - _minX;
         
-        if (range <= 0)
-        {
-            return 50; // Center if there is no range
-        }
+        if (range <= 0) return 50;
         
-        // Map the value proportionally between min and max
-        double ratio = (val - _minX) / range;
-        
-        // Scale to 5% - 95% so the circles don't clip off the edges of the SVG
-        return 5 + (ratio * 90);
+        return ((val - _minX) / range) * 100;
     }
 }
