@@ -3,208 +3,332 @@
 @inject IJSRuntime JS
 
 <div class="line-chart">
+
+    <!-- Title -->
     @if (!string.IsNullOrWhiteSpace(Title))
     {
-        <div class="line-chart-title">@Title</div>
+        <div class="line-chart__title">@Title</div>
     }
-    <div class="line-chart-host">
-        <canvas @ref="_canvas"></canvas>
+
+    <!-- Chart Host -->
+    <div class="line-chart__host">
+    
+        <!-- Chart -->
+        <canvas @ref="_canvas" class="line-chart__canvas"></canvas>
     </div>
 </div>
 
 <script>
-    // Use ??= to ensure this object is only created once, even if multiple charts exist on the page.
-    window.LineChart ??= {
-        render(canvas, data) {
-            canvas._data = data;
+    // --- State Management ---
+    const chartState = new WeakMap();
 
-            if (!canvas._resizeObserver) {
-                canvas._resizeObserver = new ResizeObserver(() => this.draw(canvas));
-                canvas._resizeObserver.observe(canvas.parentElement);
+    // --- Configuration Constants ---
+    const TARGET_TICK_COUNT = 4;
+    const TICK_MULTIPLIERS = [1, 2, 5, 10];
+    const MAX_DECIMAL_PLACES = 4;
+
+    const PADDING = { left: 70, right: 30, top: 20, bottom: 60 };
+    const Y_AXIS_LABEL_OFFSET = 16;
+    const X_AXIS_LABEL_OFFSET = 12;
+    const X_TITLE_BOTTOM_OFFSET = 10;
+    const Y_TITLE_LEFT_OFFSET = 10;
+    const ROTATION_90_DEG_CCW = -Math.PI / 2;
+
+    // --- Math Functions ---
+    const getExtremes = (data) => {
+        let min = Infinity;
+        let max = -Infinity;
+        
+        for (let i = 0; i < data.length; i++) {
+            const value = data[i];
+            if (value < min) min = value;
+            if (value > max) max = value;
+        }
+        
+        if (min === max) {
+            return { min: min - 1, max: max + 1 };
+        }
+        
+        return { min, max };
+    };
+
+    const getTicks = (start, end, forceInteger) => {
+        const range = end - start || 1;
+        const rawStep = range / TARGET_TICK_COUNT;
+        const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+        
+        let step = magnitude * 10;
+        for (const multiplier of TICK_MULTIPLIERS) {
+            if (rawStep / magnitude <= multiplier) {
+                step = magnitude * multiplier;
+                break;
             }
+        }
+        
+        if (forceInteger) {
+            step = Math.max(1, Math.round(step));
+        }
+        
+        const ticks = [];
+        const firstTick = Math.ceil(start / step) * step;
+        
+        for (let value = firstTick; value < end; value += step) {
+            if (value > start) {
+                ticks.push(value);
+            }
+        }
+        
+        return [start, ...ticks, end];
+    };
 
+    // --- Color Theme ---
+    const extractTheme = (canvas) => {
+        const computed = getComputedStyle(canvas);
+        const getCss = (prop, fallback) => computed.getPropertyValue(prop).trim() || fallback;
+        
+        return {
+            axisFont: getCss('--line-chart-axis-font', '12px system-ui, sans-serif'),
+            axisTextColor: getCss('--line-chart-axis-text-color', '#9ca3af'),
+            gridColor: getCss('--line-chart-grid-color', '#e5e7eb'),
+            gridLineWidth: 1,
+            titleFont: getCss('--line-chart-title-font', '600 13px system-ui, sans-serif'),
+            titleTextColor: getCss('--line-chart-title-text-color', '#4b5563'),
+            lineColor: getCss('--line-chart-line-color', '#ef4444'),
+            lineWidth: 2
+        };
+    };
+
+    const setupCanvas = (canvas, width, height) => {
+        const ratio = window.devicePixelRatio || 1;
+        canvas.style.width = `${width}px`;
+        canvas.style.height = `${height}px`;
+        canvas.width = width * ratio;
+        canvas.height = height * ratio;
+
+        const ctx = canvas.getContext("2d");
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        ctx.clearRect(0, 0, width, height);
+        
+        return ctx;
+    };
+
+    const calculateLayout = (width, height, data) => {
+        const plotWidth = Math.max(1, width - PADDING.left - PADDING.right);
+        const plotHeight = Math.max(1, height - PADDING.top - PADDING.bottom);
+        const xMax = Math.max(1, data.length - 1);
+        const { min, max } = getExtremes(data);
+
+        return {
+            width, height,
+            plotWidth, plotHeight,
+            xMax, min, max,
+            mapX: (index) => PADDING.left + (index / xMax) * plotWidth,
+            mapY: (value) => PADDING.top + plotHeight - ((value - min) / (max - min)) * plotHeight
+        };
+    };
+
+    const drawGridAndAxes = (ctx, layout, theme) => {
+        ctx.font = theme.axisFont;
+        ctx.fillStyle = theme.axisTextColor;
+        ctx.strokeStyle = theme.gridColor;
+        ctx.lineWidth = theme.gridLineWidth;
+        ctx.beginPath();
+
+        // Y-Axis
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        const yTicks = getTicks(layout.min, layout.max, false);
+        
+        for (const tick of yTicks) {
+            const y = layout.mapY(tick);
+            const label = +tick.toFixed(MAX_DECIMAL_PLACES);
+            
+            ctx.fillText(label, PADDING.left - Y_AXIS_LABEL_OFFSET, y);
+            ctx.moveTo(PADDING.left, y);
+            ctx.lineTo(layout.width - PADDING.right, y);
+        }
+
+        // X-Axis
+        ctx.textAlign = "center";
+        ctx.textBaseline = "top";
+        const xTicks = getTicks(0, layout.xMax, true);
+        
+        for (const tick of xTicks) {
+            const x = layout.mapX(tick);
+            const label = Math.round(tick);
+            
+            ctx.fillText(label, x, PADDING.top + layout.plotHeight + X_AXIS_LABEL_OFFSET);
+            ctx.moveTo(x, PADDING.top);
+            ctx.lineTo(x, PADDING.top + layout.plotHeight);
+        }
+        
+        ctx.stroke();
+    };
+
+    const drawTitles = (ctx, layout, theme, xTitle, yTitle) => {
+        ctx.fillStyle = theme.titleTextColor;
+        ctx.font = theme.titleFont;
+        
+        const xTitleX = PADDING.left + (layout.plotWidth / 2);
+        const xTitleY = layout.height - X_TITLE_BOTTOM_OFFSET;
+        ctx.fillText(xTitle, xTitleX, xTitleY);
+        
+        const yTitleX = Y_TITLE_LEFT_OFFSET;
+        const yTitleY = PADDING.top + (layout.plotHeight / 2);
+        
+        ctx.save();
+        ctx.translate(yTitleX, yTitleY);
+        ctx.rotate(ROTATION_90_DEG_CCW);
+        ctx.fillText(yTitle, 0, 0);
+        ctx.restore();
+    };
+
+    const drawStandardSeries = (ctx, layout, data) => {
+        for (let i = 0; i < data.length; i++) {
+            const x = layout.mapX(i);
+            const y = layout.mapY(data[i]);
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+    };
+
+    const drawDenseSeries = (ctx, layout, data) => {
+        const pointsPerPixel = data.length / layout.plotWidth;
+        ctx.moveTo(layout.mapX(0), layout.mapY(data[0]));
+        
+        for (let pixel = 0; pixel < layout.plotWidth; pixel++) {
+            const startIndex = Math.floor(pixel * pointsPerPixel);
+            const endIndex = Math.min(Math.floor((pixel + 1) * pointsPerPixel), data.length);
+            
+            let localMin = Infinity;
+            let localMax = -Infinity;
+            
+            for (let i = startIndex; i < endIndex; i++) {
+                const value = data[i];
+                if (value < localMin) localMin = value;
+                if (value > localMax) localMax = value;
+            }
+            
+            const x = PADDING.left + pixel;
+            const lastValueInBucket = data[endIndex - 1];
+            
+            ctx.lineTo(x, layout.mapY(localMin));
+            ctx.lineTo(x, layout.mapY(localMax));
+            ctx.lineTo(x, layout.mapY(lastValueInBucket));
+        }
+    };
+
+    const drawSeries = (ctx, layout, data, theme) => {
+        ctx.strokeStyle = theme.lineColor;
+        ctx.lineWidth = theme.lineWidth;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        
+        if (data.length <= layout.plotWidth) {
+            drawStandardSeries(ctx, layout, data);
+        } else {
+            drawDenseSeries(ctx, layout, data);
+        }
+        
+        ctx.stroke();
+    };
+
+    // --- Component API ---
+    window.LineChart ??= {
+        render(canvas, data, xTitle, yTitle) {
+            let state = chartState.get(canvas);
+            
+            if (!state) {
+                state = {
+                    theme: extractTheme(canvas),
+                    observer: new ResizeObserver(() => this.draw(canvas))
+                };
+                state.observer.observe(canvas.parentElement);
+                chartState.set(canvas, state);
+            }
+            
+            state.data = data;
+            state.xTitle = xTitle;
+            state.yTitle = yTitle;
+            
             this.draw(canvas);
         },
 
         dispose(canvas) {
-            canvas._resizeObserver?.disconnect();
+            const state = chartState.get(canvas);
+            if (state) {
+                state.observer.disconnect();
+                chartState.delete(canvas);
+            }
         },
 
         draw(canvas) {
-            // Destructure for cleaner, faster property access
-            const { _data: data, parentElement: parent } = canvas;
-            if (!data?.length || !parent) return;
-
-            const { clientWidth: width, clientHeight: height } = parent;
+            const state = chartState.get(canvas);
+            const parent = canvas.parentElement;
             
-            // Prevent drawing if the container is hidden or squished to 0
-            if (width <= 0 || height <= 0) return;
-
-            // 1. Centralized CSS-Variable Theme Resolution
-            const computed = getComputedStyle(canvas);
-            const css = (prop, fallback) => computed.getPropertyValue(prop).trim() || fallback;
-            
-            const theme = {
-                axisFont: css('--lc-axis-font', '12px system-ui, sans-serif'),
-                axisTextColor: css('--lc-axis-text-color', '#9ca3af'),
-                gridColor: css('--lc-grid-color', '#e5e7eb'),
-                gridLineWidth: parseFloat(css('--lc-grid-line-width', '1')),
-                titleFont: css('--lc-title-font', '600 13px system-ui, sans-serif'),
-                titleTextColor: css('--lc-title-text-color', '#4b5563'),
-                lineColor: css('--lc-line-color', '#ef4444'),
-                lineWidth: parseFloat(css('--lc-line-width', '2'))
-            };
-
-            // 2. Layout & High-DPI Canvas Setup
-            const ratio = window.devicePixelRatio || 1;
-            canvas.style.width = `${width}px`;
-            canvas.style.height = `${height}px`;
-            canvas.width = width * ratio;
-            canvas.height = height * ratio;
-
-            const ctx = canvas.getContext("2d");
-            ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
-            const left = 70, right = 30, top = 20, bottom = 60;
-            
-            // Clamp plot dimensions to a minimum of 1 to prevent negative math
-            const plotWidth = Math.max(1, width - left - right);
-            const plotHeight = Math.max(1, height - top - bottom);
-
-            const xMax = Math.max(1, data.length - 1);
-            
-            // BULLETPROOF MIN/MAX CALCULATION
-            // Prevents "Maximum call stack size exceeded" on large arrays
-            let min = Infinity;
-            let max = -Infinity;
-            for (let i = 0; i < data.length; i++) {
-                const v = data[i];
-                if (v < min) min = v;
-                if (v > max) max = v;
-            }
-            
-            // Fallbacks in case of empty or flat data
-            if (min === Infinity) { min = 0; max = 1; }
-            else if (min === max) { min -= 1; max += 1; }
-
-            const getX = (index) => left + (index / xMax) * plotWidth;
-            const getY = (value) => top + plotHeight - ((value - min) / (max - min)) * plotHeight;
-
-            // 3. Smart Tick Generator
-            const getTicks = (start, end, forceInteger) => {
-                const range = end - start || 1;
-                const magnitude = 10 ** Math.floor(Math.log10(range / 4));
-                let step = magnitude * ([1, 2, 5, 10].find(n => (range / 4) / magnitude <= n) || 10);
-                
-                if (forceInteger) step = Math.max(1, Math.round(step));
-                
-                const ticks = [];
-                const epsilon = step * 0.01;
-                
-                for (let v = Math.ceil(start / step) * step; v < end - epsilon; v += step) {
-                    if (v > start + epsilon) ticks.push(v);
-                }
-                    
-                // Filter out nice ticks that overlap with our forced exact min/max
-                if (ticks.length > 0 && (ticks[0] - start) / range < 0.15) ticks.shift();
-                if (ticks.length > 0 && (end - ticks[ticks.length - 1]) / range < 0.15) ticks.pop();
-                
-                return [start, ...ticks, end];
-            };
-
-            ctx.clearRect(0, 0, width, height);
-            
-            // 4. Draw Grid & Axes
-            ctx.font = theme.axisFont;
-            ctx.fillStyle = theme.axisTextColor;
-            ctx.strokeStyle = theme.gridColor;
-            ctx.lineWidth = theme.gridLineWidth;
-            ctx.beginPath();
-
-            // Y-Axis
-            ctx.textAlign = "right";
-            ctx.textBaseline = "middle";
-            for (const tick of getTicks(min, max, false)) {
-                const y = getY(tick);
-                // Increased precision to 4 to prevent small decimals from rounding to the same label
-                const label = Number.isInteger(tick) ? tick : parseFloat(tick.toFixed(4));
-                
-                ctx.fillText(label, left - 16, y);
-                ctx.moveTo(left, y);
-                ctx.lineTo(width - right, y);
+            if (!state || !state.data || state.data.length === 0 || !parent) {
+                return;
             }
 
-            // X-Axis
-            ctx.textAlign = "center";
-            ctx.textBaseline = "top";
-            for (const tick of getTicks(0, xMax, true)) {
-                const x = getX(tick);
-                
-                ctx.fillText(Math.round(tick), x, top + plotHeight + 12);
-                ctx.moveTo(x, top);
-                ctx.lineTo(x, top + plotHeight);
-            }
-            ctx.stroke();
-
-            // 5. Draw Titles
-            ctx.fillStyle = theme.titleTextColor;
-            ctx.font = theme.titleFont;
-            ctx.fillText("Index", left + plotWidth / 2, height - 10);
+            const width = parent.clientWidth;
+            const height = parent.clientHeight;
             
-            ctx.save();
-            ctx.translate(10, top + plotHeight / 2);
-            ctx.rotate(-Math.PI / 2);
-            ctx.fillText("Value", 0, 0);
-            ctx.restore();
-
-            // 6. Draw Trend Line
-            ctx.strokeStyle = theme.lineColor;
-            ctx.lineWidth = theme.lineWidth;
-            ctx.lineJoin = "round";
-            ctx.beginPath();
-            
-            for (let i = 0; i < data.length; i++) {
-                const x = getX(i);
-                const y = getY(data[i]);
-                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            if (width <= 0 || height <= 0) {
+                return;
             }
-            ctx.stroke();
+
+            // Orchestrate Rendering
+            const ctx = setupCanvas(canvas, width, height);
+            const layout = calculateLayout(width, height, state.data);
+
+            drawGridAndAxes(ctx, layout, state.theme);
+            drawTitles(ctx, layout, state.theme, state.xTitle, state.yTitle);
+            drawSeries(ctx, layout, state.data, state.theme);
         }
     };
 </script>
 
 <style>
     .line-chart {
-        /* CSS API - Override these on parent elements to theme the chart */
-        --lc-axis-font: 12px system-ui, sans-serif;
-        --lc-axis-text-color: #9ca3af;
-        --lc-grid-color: #e5e7eb;
-        --lc-grid-line-width: 1;
-        --lc-title-font: 600 13px system-ui, sans-serif;
-        --lc-title-text-color: #4b5563;
-        --lc-line-color: #ef4444;
-        --lc-line-width: 2;
+        /* Color Theme */
+        --line-chart-axis-font: 12px system-ui, sans-serif;
+        --line-chart-axis-text-color: #9ca3af;
+        --line-chart-grid-color: #e5e7eb;
+        --line-chart-title-font: 600 13px system-ui, sans-serif;
+        --line-chart-title-text-color: #4b5563;
+        --line-chart-line-color: #ef4444;
 
         display: flex;
         flex-direction: column;
+
         width: 100%;
         height: 100%;
+        min-width: 0;
     }
 
-    .line-chart-title {
+    .line-chart__title {
+        min-width: 0;
+
+        padding-bottom: 0.75rem;
+
+        color: var(--line-chart-title-text-color);
+        font: var(--line-chart-title-font);
         text-align: center;
-        font: var(--lc-title-font);
-        color: var(--lc-title-text-color);
-        padding-bottom: 12px;
     }
 
-    .line-chart-host {
-        flex: 1;
+    .line-chart__host {
         position: relative;
+        flex: 1;
+
+        min-width: 0;
         min-height: 0;
     }
 
-    .line-chart-host canvas {
+    .line-chart__canvas {
         position: absolute;
         inset: 0;
     }
@@ -212,27 +336,46 @@
 
 @code {
     private ElementReference _canvas;
+    private bool _isRendered; 
 
     [Parameter]
-    public string Title { get; set; } = string.Empty;
+    public string Title { get; set; } = "Line Chart";
+
+    [Parameter]
+    public string XAxisTitle { get; set; } = "X Axis";
+
+    [Parameter]
+    public string YAxisTitle { get; set; } = "Y Axis";
 
     [Parameter, EditorRequired]
     public IReadOnlyList<double> Data { get; set; } = [];
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        await JS.InvokeVoidAsync("LineChart.render", _canvas, Data);
+        _isRendered = true; 
+
+        await JS.InvokeVoidAsync(
+            "LineChart.render",
+            _canvas,
+            Data,
+            XAxisTitle,
+            YAxisTitle);
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (!_isRendered)
+        {
+            return;
+        }
+
         try
         {
             await JS.InvokeVoidAsync("LineChart.dispose", _canvas);
         }
         catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException)
         {
-            // Safely ignore teardown errors when the user navigates away or closes the browser
+            // TO-DO
         }
     }
 }
