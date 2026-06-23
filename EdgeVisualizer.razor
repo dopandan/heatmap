@@ -1,4 +1,3 @@
-<!-- Root -->
 <div class="edge-visualizer @Class">
     
     <!-- Header -->
@@ -9,7 +8,7 @@
             @Title
         </div>
 
-        <!-- Controls -->
+        <!-- Edge Controls -->
         @if (_edges.Count > 0)
         {
             <div class="edge-visualizer__controls">
@@ -27,7 +26,7 @@
                     Older
                 </button>
 
-                @* Timestamp *@
+                @* Edge Timestamp *@
                 <time class="edge-visualizer__timestamp" datetime="@CurrentEdge?.Timestamp">
                     @CurrentEdge?.Timestamp
                 </time>
@@ -53,7 +52,7 @@
     <div class="edge-visualizer__body">
         
         @* Edge Graph *@
-        @if (CurrentEdge != null && edges.Count > 0)
+        @if (CurrentEdge != null && _edges.Count > 0)
         {
             <svg class="edge-visualizer__graph">
                 <line class="edge-visualizer__axis" x1="5%" y1="50%" x2="95%" y2="50%" />
@@ -87,7 +86,6 @@
 </div>
 
 <style>
-    /* Root */
     .edge-visualizer {
         /* Color Theme */
         --edge-visualizer-bg: #ffffff;
@@ -110,7 +108,6 @@
         color: var(--edge-visualizer-text);
     }
 
-    /* Header */
     .edge-visualizer__header {
         display: flex;
         align-items: center;
@@ -129,7 +126,6 @@
         font-weight: 600;
     }
 
-    /* Controls */
     .edge-visualizer__controls {
         display: flex;
         align-items: center;
@@ -182,7 +178,6 @@
         text-align: center;
     }
 
-    /* Body */
     .edge-visualizer__body {
         flex: 1;
         display: flex;
@@ -193,7 +188,6 @@
         padding: 1rem;
     }
 
-    /* Graph */
     .edge-visualizer__graph {
         display: block;
 
