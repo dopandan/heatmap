@@ -11,7 +11,7 @@
 
 <style>
     .heatmap__canvas {
-        --heatmap-background: #ffffff;
+        --heatmap-background: blue;
         --heatmap-axis-font: 11px sans-serif;
         --heatmap-axis-text-color: #6b7280;
         --heatmap-title-font: 600 13px sans-serif;
@@ -21,7 +21,6 @@
         display: block;
         outline: none;
         touch-action: none;
-        background: var(--heatmap-background);
     }
 
     .heatmap,
@@ -49,6 +48,8 @@
             const getCss = (prop, fallback) => computed.getPropertyValue(prop).trim() || fallback;
 
             return {
+                // Correct: looks up the CSS variable, falls back to blue if it can't find it
+                backgroundColor: getCss('--heatmap-background'), 
                 axisFont: getCss('--heatmap-axis-font', '11px sans-serif'),
                 axisTextColor: getCss('--heatmap-axis-text-color', '#6b7280'),
                 titleFont: getCss('--heatmap-title-font', '600 13px sans-serif'),
@@ -255,11 +256,16 @@
 
         function draw(instance) {
             const rect = resizeCanvas(instance.canvas, instance.ctx);
+
+            instance.theme = extractTheme(instance.canvas);
+
+            instance.ctx.fillStyle = instance.theme.backgroundColor;
+            instance.ctx.fillRect(0, 0, rect.width, rect.height);
+
             const layout = getLayout(rect);
 
             if (layout.plotW <= 0 || layout.plotH <= 0) return;
 
-            instance.theme = extractTheme(instance.canvas);
             setAxisStyle(instance);
             drawHeatmap(instance, layout);
             drawYAxis(instance, layout);
