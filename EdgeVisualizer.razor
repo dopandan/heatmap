@@ -193,27 +193,29 @@
         _minX = double.MaxValue;
         _maxX = double.MinValue;
 
-        if (CurrentEdge == null)
+        // Cumulative history is preserved by looking at all loaded edges
+        var boundsList = new List<DetectedEdge>(_edges);
+        if (CurrentEdge != null && !boundsList.Any(e => e.Timestamp == CurrentEdge.Timestamp))
         {
-            _minX = 0;
-            _maxX = 100;
-            return;
+            boundsList.Add(CurrentEdge);
         }
 
-        // Determine axis scale solely based on the current active edge's range
-        if (CurrentEdge.OpenSide is OpenSide.Left or OpenSide.Both)
+        foreach (var edge in boundsList)
         {
-            _minX = Math.Min(_minX, CurrentEdge.OpenLeftX);
-            _maxX = Math.Max(_maxX, CurrentEdge.OpenLeftX);
+            if (edge.OpenSide is OpenSide.Left or OpenSide.Both)
+            {
+                _minX = Math.Min(_minX, edge.OpenLeftX);
+                _maxX = Math.Max(_maxX, edge.OpenLeftX);
+            }
+
+            if (edge.OpenSide is OpenSide.Right or OpenSide.Both)
+            {
+                _minX = Math.Min(_minX, edge.OpenRightX);
+                _maxX = Math.Max(_maxX, edge.OpenRightX);
+            }
         }
 
-        if (CurrentEdge.OpenSide is OpenSide.Right or OpenSide.Both)
-        {
-            _minX = Math.Min(_minX, CurrentEdge.OpenRightX);
-            _maxX = Math.Max(_maxX, CurrentEdge.OpenRightX);
-        }
-
-        // Handle edge cases where the active edge has no open side data
+        // Handle empty or uninitialized bounds
         if (_minX == double.MaxValue || _maxX == double.MinValue)
         {
             _minX = 0;
@@ -221,19 +223,20 @@
             return;
         }
 
+        // Surgical Fix 1: Symmetrical Single-Point / Zero-Span Protection
+        // If there's only one coordinate in the history, pad it scale-appropriately so it doesn't default to 0..100 and get clamped
         if (Math.Abs(_maxX - _minX) < 1e-9)
         {
-            // Symmetrical padding around a single point, dynamically scaled based on its value
             var singleValue = _minX;
-            var offset = Math.Max(1.0, Math.Abs(singleValue) * 0.1); // Fallback to a margin of at least 1.0 unit
+            var offset = Math.Max(1.0, Math.Abs(singleValue) * 0.1); 
             _minX = singleValue - offset;
             _maxX = singleValue + offset;
         }
         else
         {
-            // Apply a slight cushion so that the visualizer margins don't overlap the extreme edges of your scale
+            // Apply slight padding to the ends of the timeline so extreme values have room to breathe
             var span = _maxX - _minX;
-            var padding = span * 0.1; // 10% breathing room on each side
+            var padding = span * 0.05; // 5% cushion
             _minX -= padding;
             _maxX += padding;
         }
@@ -254,9 +257,10 @@
         return AxisStartPercent + normalized * (AxisEndPercent - AxisStartPercent);
     }
 
+    // Surgical Fix 2: Culture-safe Layout Formatter
+    // Converts coordinate decimals to standard periods (.) instead of localized commas (,)
     private string FormatPercent(double value)
     {
-        // Enforce the use of dot (.) as a decimal separator instead of culture-specific commas (,) 
         return value.ToString("0.00", CultureInfo.InvariantCulture);
     }
 
