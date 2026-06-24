@@ -161,7 +161,6 @@
     [Parameter] public IEnumerable<DetectedEdge> Data { get; set; } = Array.Empty<DetectedEdge>();
     [Parameter] public string? Class { get; set; }
     [Parameter] public DetectedEdge? CurrentEdge { get; set; }
-    [Parameter] public EventCallback<DetectedEdge?> CurrentEdgeChanged { get; set; }
 
     private const double AxisStartPercent = 8;
     private const double AxisEndPercent = 92;
