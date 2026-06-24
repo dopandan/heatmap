@@ -1,0 +1,214 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+
+<div class="page">
+
+    <div class="controls">
+        <button @onclick="ToggleHeatMapStream">
+            @(_heatMapRunning ? "Stop HeatMap" : "Start HeatMap")
+        </button>
+        <button @onclick="AddHeatMapRowAsync">Add Row</button>
+        <button @onclick="ClearHeatMapAsync">Clear</button>
+
+        <label>
+            Width
+            <input type="range" min="300" max="1200" @bind="_heatMapWidth" />
+            @_heatMapWidth px
+        </label>
+
+        <label>
+            Height
+            <input type="range" min="200" max="800" @bind="_heatMapHeight" />
+            @_heatMapHeight px
+        </label>
+    </div>
+
+    <div class="graph-box" style="width:@($"{_heatMapWidth}px"); height:@($"{_heatMapHeight}px")">
+        <div class="graph-wrapper">
+            <HeatMap @ref="_heatMap"
+                     Data="_heatMapData"
+                     Colors="_colors"
+                     XAxisTitle="Sensor Index"
+                     YAxisTitle="Scan" />
+        </div>
+    </div>
+
+</div>
+
+<style>
+    .page {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+        box-sizing: border-box;
+        font-family: system-ui;
+    }
+
+    .controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .graph-box {
+        border: 1px solid #e5e7eb;
+        resize: both;
+        overflow: hidden;
+        min-width: 300px;
+        min-height: 200px;
+    }
+
+    .graph-wrapper {
+        width: 100%;
+        height: 100%;
+    }
+
+    button {
+        padding: 6px 12px;
+    }
+
+    label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+</style>
+
+@code {
+    private HeatMap? _heatMap;
+    private readonly Random _random = new();
+
+    private List<List<double>> _heatMapData = new();
+    private bool _heatMapRunning;
+    private CancellationTokenSource? _heatMapCts;
+
+    private int _heatMapWidth = 700;
+    private int _heatMapHeight = 350;
+
+    private readonly List<HeatMap.ColorStop> _colors = new()
+    {
+        new(100, 30, 64, 175),
+        new(200, 37, 99, 235),
+        new(300, 6, 182, 212),
+        new(400, 34, 197, 94),
+        new(500, 234, 179, 8),
+        new(600, 249, 115, 22),
+        new(double.MaxValue, 239, 68, 68)
+    };
+
+    private async Task ToggleHeatMapStream()
+    {
+        if (_heatMapRunning)
+        {
+            StopHeatMapStream();
+            return;
+        }
+
+        await StartHeatMapStreamAsync();
+    }
+
+    private async Task StartHeatMapStreamAsync()
+    {
+        if (_heatMapRunning)
+            return;
+
+        _heatMapRunning = true;
+
+        _heatMapCts?.Cancel();
+        _heatMapCts?.Dispose();
+        _heatMapCts = new CancellationTokenSource();
+
+        await AddHeatMapRowAsync();
+
+        _ = RunHeatMapStreamAsync(_heatMapCts.Token);
+
+        StateHasChanged();
+    }
+
+    private async Task RunHeatMapStreamAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
+
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await InvokeAsync(AddHeatMapRowAsync);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+
+            await InvokeAsync(() =>
+            {
+                _heatMapRunning = false;
+                StateHasChanged();
+            });
+        }
+    }
+
+    private void StopHeatMapStream()
+    {
+        _heatMapRunning = false;
+
+        _heatMapCts?.Cancel();
+        _heatMapCts?.Dispose();
+        _heatMapCts = null;
+
+        StateHasChanged();
+    }
+
+    private async Task AddHeatMapRowAsync()
+    {
+        const int width = 120;
+
+        var row = Enumerable
+            .Range(0, width)
+            .Select(i =>
+                300
+                + 250 * Math.Sin((_heatMapData.Count + i) * 0.08)
+                + _random.NextDouble() * 80)
+            .ToList();
+
+        _heatMapData.Add(row);
+
+        if (_heatMapData.Count > 200)
+        {
+            _heatMapData.RemoveAt(0);
+        }
+
+        if (_heatMap is not null)
+        {
+            await _heatMap.RefreshAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task ClearHeatMapAsync()
+    {
+        StopHeatMapStream();
+        _heatMapData.Clear();
+
+        if (_heatMap is not null)
+        {
+            await _heatMap.RefreshAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        StopHeatMapStream();
+        _heatMapCts?.Dispose();
+    }
+}
