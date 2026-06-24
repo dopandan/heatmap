@@ -1,3 +1,7 @@
+@using System.IO
+@using System.Globalization
+@using Microsoft.JSInterop
+
 <div class="edge-visualizer @Class">
 
     <div class="edge-visualizer__header">
@@ -16,21 +20,21 @@
             <svg class="edge-visualizer__graph">
 
                 <line class="edge-visualizer__axis"
-                      x1="@($"{AxisStartPercent}%")"
+                      x1="@($"{FormatPercent(AxisStartPercent)}%")"
                       y1="50%"
-                      x2="@($"{AxisEndPercent}%")"
+                      x2="@($"{FormatPercent(AxisEndPercent)}%")"
                       y2="50%" />
 
                 @if (CurrentEdge.OpenSide is OpenSide.Left or OpenSide.Both)
                 {
                     <g>
                         <circle class="edge-visualizer__point edge-visualizer__point--left"
-                                cx="@($"{GetXAxisPercent(CurrentEdge.OpenLeftX)}%")"
+                                cx="@($"{FormatPercent(GetXAxisPercent(CurrentEdge.OpenLeftX))}%")"
                                 cy="50%"
                                 r="8" />
 
                         <text class="edge-visualizer__label edge-visualizer__label--left"
-                              x="@($"{GetXAxisPercent(CurrentEdge.OpenLeftX)}%")"
+                              x="@($"{FormatPercent(GetXAxisPercent(CurrentEdge.OpenLeftX))}%")"
                               y="35%"
                               text-anchor="@GetTextAnchor(CurrentEdge.OpenLeftX)">
                             L: @CurrentEdge.OpenLeftX.ToString("0.0")
@@ -42,12 +46,12 @@
                 {
                     <g>
                         <circle class="edge-visualizer__point edge-visualizer__point--right"
-                                cx="@($"{GetXAxisPercent(CurrentEdge.OpenRightX)}%")"
+                                cx="@($"{FormatPercent(GetXAxisPercent(CurrentEdge.OpenRightX))}%")"
                                 cy="50%"
                                 r="8" />
 
                         <text class="edge-visualizer__label edge-visualizer__label--right"
-                              x="@($"{GetXAxisPercent(CurrentEdge.OpenRightX)}%")"
+                              x="@($"{FormatPercent(GetXAxisPercent(CurrentEdge.OpenRightX))}%")"
                               y="70%"
                               text-anchor="@GetTextAnchor(CurrentEdge.OpenRightX)">
                             R: @CurrentEdge.OpenRightX.ToString("0.0")
@@ -158,9 +162,10 @@
         public string Timestamp { get; set; } = string.Empty;
     }
 
-    [Parameter] public IEnumerable<DetectedEdge> Data { get; set; } = Array.Empty<DetectedEdge>();
+    [Parameter, EditorRequired] public IEnumerable<DetectedEdge> Data { get; set; } = Array.Empty<DetectedEdge>();
+    [Parameter, EditorRequired] public DetectedEdge? CurrentEdge { get; set; }
+    
     [Parameter] public string? Class { get; set; }
-    [Parameter] public DetectedEdge? CurrentEdge { get; set; }
 
     private const double AxisStartPercent = 8;
     private const double AxisEndPercent = 92;
@@ -188,31 +193,49 @@
         _minX = double.MaxValue;
         _maxX = double.MinValue;
 
-        var boundsList = new List<DetectedEdge>(_edges);
-        if (CurrentEdge != null && !boundsList.Any(e => e.Timestamp == CurrentEdge.Timestamp))
-        {
-            boundsList.Add(CurrentEdge);
-        }
-
-        foreach (var edge in boundsList)
-        {
-            if (edge.OpenSide is OpenSide.Left or OpenSide.Both)
-            {
-                _minX = Math.Min(_minX, edge.OpenLeftX);
-                _maxX = Math.Max(_maxX, edge.OpenLeftX);
-            }
-
-            if (edge.OpenSide is OpenSide.Right or OpenSide.Both)
-            {
-                _minX = Math.Min(_minX, edge.OpenRightX);
-                _maxX = Math.Max(_maxX, edge.OpenRightX);
-            }
-        }
-
-        if (_minX >= _maxX)
+        if (CurrentEdge == null)
         {
             _minX = 0;
             _maxX = 100;
+            return;
+        }
+
+        // Determine axis scale solely based on the current active edge's range
+        if (CurrentEdge.OpenSide is OpenSide.Left or OpenSide.Both)
+        {
+            _minX = Math.Min(_minX, CurrentEdge.OpenLeftX);
+            _maxX = Math.Max(_maxX, CurrentEdge.OpenLeftX);
+        }
+
+        if (CurrentEdge.OpenSide is OpenSide.Right or OpenSide.Both)
+        {
+            _minX = Math.Min(_minX, CurrentEdge.OpenRightX);
+            _maxX = Math.Max(_maxX, CurrentEdge.OpenRightX);
+        }
+
+        // Handle edge cases where the active edge has no open side data
+        if (_minX == double.MaxValue || _maxX == double.MinValue)
+        {
+            _minX = 0;
+            _maxX = 100;
+            return;
+        }
+
+        if (Math.Abs(_maxX - _minX) < 1e-9)
+        {
+            // Symmetrical padding around a single point, dynamically scaled based on its value
+            var singleValue = _minX;
+            var offset = Math.Max(1.0, Math.Abs(singleValue) * 0.1); // Fallback to a margin of at least 1.0 unit
+            _minX = singleValue - offset;
+            _maxX = singleValue + offset;
+        }
+        else
+        {
+            // Apply a slight cushion so that the visualizer margins don't overlap the extreme edges of your scale
+            var span = _maxX - _minX;
+            var padding = span * 0.1; // 10% breathing room on each side
+            _minX -= padding;
+            _maxX += padding;
         }
     }
 
@@ -229,6 +252,12 @@
         normalized = Math.Clamp(normalized, 0, 1);
 
         return AxisStartPercent + normalized * (AxisEndPercent - AxisStartPercent);
+    }
+
+    private string FormatPercent(double value)
+    {
+        // Enforce the use of dot (.) as a decimal separator instead of culture-specific commas (,) 
+        return value.ToString("0.00", CultureInfo.InvariantCulture);
     }
 
     private string GetTextAnchor(double value)
