@@ -3,64 +3,66 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<canvas @ref="_canvasRef" class="heatmap-canvas" role="img" aria-label="Line-laser heat map"></canvas>
+<div class="heatmap">
+    <div class="heatmap__host">
+         <canvas @ref="_canvasRef" class="heatmap__canvas"></canvas>
+    </div>
+</div>
 
 <style>
-    .heatmap-canvas {
+    .heatmap__canvas {
+        --heatmap-background: #ffffff;
+        --heatmap-axis-font: 11px sans-serif;
+        --heatmap-axis-text-color: #6b7280;
+        --heatmap-title-font: 600 13px sans-serif;
+        --heatmap-title-text-color: #374151;
+        --heatmap-axis-line-color: #e5e7eb;
+
         display: block;
-        width: 100%;
-        height: 100%;
-        min-width: 0;
-        min-height: 0;
         outline: none;
         touch-action: none;
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 0.5rem;
-        box-sizing: border-box;
+        background: var(--heatmap-background);
+    }
+
+    .heatmap,
+    .heatmap__host,
+    .heatmap__canvas {
+        width: 100%;
+        height: 100%;
     }
 </style>
 
 <script>
-    window.HeatMap = (() => {
+    window.HeatMap ??= (() => {
         const instances = new WeakMap();
 
         const cfg = {
-            padding: 16,
-            yAxisWidth: 60,
-            xAxisHeight: 40,
-            legendWidth: 110,
-            yTickSpacing: 75,
-            xTickSpacing: 110,
-            minEndTickGap: 35,
-            tickSize: 5,
-            yTickTextGap: 8,
-            xTickTextGap: 8,
-            xTitleBottomGap: 5,
-            legendBoxSize: 14,
-            legendRowHeight: 22,
-            legendTitleYOffset: 6,
-            legendItemsYOffset: 24,
-            legendTextXOffset: 22,
-            axisFont: "11px sans-serif",
-            titleFont: "600 13px sans-serif",
-            axisTextColor: "#6b7280",
-            titleTextColor: "#374151",
-            axisLineColor: "#e5e7eb",
-            legendBorderColor: "rgba(0,0,0,0.15)",
-            opaqueAlpha: 255,
-            minZoom: 1,
-            maxZoom: 20,
-            zoomStep: 1.1
+            padding: 16, yAxisWidth: 60, xAxisHeight: 40, legendWidth: 110,
+            yTickSpacing: 75, xTickSpacing: 110, minEndTickGap: 35, tickSize: 5,
+            yTickTextGap: 8, xTickTextGap: 8, xTitleBottomGap: 5, legendBoxSize: 14,
+            legendRowHeight: 22, legendTitleYOffset: 6, legendItemsYOffset: 24,
+            legendTextXOffset: 22, opaqueAlpha: 255, minZoom: 1, maxZoom: 20, zoomStep: 1.1
+        };
+
+        const extractTheme = (canvas) => {
+            const computed = getComputedStyle(canvas);
+            const getCss = (prop, fallback) => computed.getPropertyValue(prop).trim() || fallback;
+
+            return {
+                axisFont: getCss('--heatmap-axis-font', '11px sans-serif'),
+                axisTextColor: getCss('--heatmap-axis-text-color', '#6b7280'),
+                titleFont: getCss('--heatmap-title-font', '600 13px sans-serif'),
+                titleTextColor: getCss('--heatmap-title-text-color', '#374151'),
+                axisLineColor: getCss('--heatmap-axis-line-color', '#e5e7eb'),
+                legendBorderColor: getCss('--heatmap-legend-border-color', 'rgba(0, 0, 0, 0.15)')
+            };
         };
 
         function getLayout(rect) {
             const plotX = cfg.padding + cfg.yAxisWidth;
             const plotY = cfg.padding;
-
             return {
-                plotX,
-                plotY,
+                plotX, plotY,
                 plotW: rect.width - plotX - cfg.legendWidth - cfg.padding,
                 plotH: rect.height - plotY - cfg.xAxisHeight - cfg.padding
             };
@@ -70,7 +72,6 @@
             for (const color of colors) {
                 if (value < color.threshold) return color;
             }
-
             return colors[colors.length - 1];
         }
 
@@ -82,27 +83,22 @@
             if (index === colors.length - 1) {
                 return `≥ ${formatThreshold(colors[index - 1]?.threshold ?? colors[index].threshold)}`;
             }
-
             return `< ${formatThreshold(colors[index].threshold)}`;
         }
 
         function resizeCanvas(canvas, ctx) {
             const dpr = window.devicePixelRatio || 1;
             const rect = canvas.getBoundingClientRect();
-
             canvas.width = rect.width * dpr;
             canvas.height = rect.height * dpr;
-
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             ctx.clearRect(0, 0, rect.width, rect.height);
-
             return rect;
         }
 
         function clampView(instance) {
             const sourceW = instance.dataW / instance.zoom;
             const sourceH = instance.dataH / instance.zoom;
-
             instance.viewX = Math.max(0, Math.min(instance.viewX, Math.max(0, instance.dataW - sourceW)));
             instance.viewY = Math.max(0, Math.min(instance.viewY, Math.max(0, instance.dataH - sourceH)));
         }
@@ -114,9 +110,7 @@
             const size = domain / instance.zoom;
 
             return {
-                domain,
-                start,
-                size,
+                domain, start, size,
                 first: Math.max(1, Math.floor(start) + 1),
                 last: Math.min(domain, Math.ceil(start + size))
             };
@@ -140,10 +134,7 @@
             }
 
             const finalGap = ((last - ticks[ticks.length - 1]) / count) * pixels;
-
-            if (ticks.length > 1 && finalGap < cfg.minEndTickGap) {
-                ticks.pop();
-            }
+            if (ticks.length > 1 && finalGap < cfg.minEndTickGap) ticks.pop();
 
             ticks.push(last);
             return ticks;
@@ -151,7 +142,6 @@
 
         function drawHeatmap(instance, layout) {
             if (instance.dataW <= 0 || instance.dataH <= 0) return;
-
             clampView(instance);
 
             const sourceW = instance.dataW / instance.zoom;
@@ -159,23 +149,17 @@
 
             instance.ctx.imageSmoothingEnabled = false;
             instance.ctx.drawImage(
-                instance.offscreen,
-                instance.viewX,
-                instance.viewY,
-                sourceW,
-                sourceH,
-                layout.plotX,
-                layout.plotY,
-                layout.plotW,
-                layout.plotH
+                instance.offscreen, instance.viewX, instance.viewY, sourceW, sourceH,
+                layout.plotX, layout.plotY, layout.plotW, layout.plotH
             );
         }
 
-        function setAxisStyle(ctx) {
-            ctx.fillStyle = cfg.axisTextColor;
-            ctx.strokeStyle = cfg.axisLineColor;
+        function setAxisStyle(instance) {
+            const ctx = instance.ctx;
+            ctx.fillStyle = instance.theme.axisTextColor;
+            ctx.strokeStyle = instance.theme.axisLineColor;
             ctx.lineWidth = 1;
-            ctx.font = cfg.axisFont;
+            ctx.font = instance.theme.axisFont;
         }
 
         function drawYAxis(instance, layout) {
@@ -195,7 +179,6 @@
                 const y = Math.max(layout.plotY, Math.min(rawY, layout.plotY + layout.plotH));
 
                 ctx.fillText(tick.toString(), layout.plotX - cfg.yTickTextGap, y);
-
                 ctx.beginPath();
                 ctx.moveTo(layout.plotX - cfg.tickSize, y);
                 ctx.lineTo(layout.plotX, y);
@@ -207,8 +190,8 @@
             ctx.rotate(-Math.PI / 2);
             ctx.textAlign = "center";
             ctx.textBaseline = "top";
-            ctx.fillStyle = cfg.titleTextColor;
-            ctx.font = cfg.titleFont;
+            ctx.fillStyle = instance.theme.titleTextColor;
+            ctx.font = instance.theme.titleFont;
             ctx.fillText(instance.config.yAxisTitle, 0, 0);
             ctx.restore();
         }
@@ -230,20 +213,15 @@
                 const x = Math.max(layout.plotX, Math.min(rawX, layout.plotX + layout.plotW));
 
                 ctx.fillText(tick.toString(), x, layout.plotY + layout.plotH + cfg.xTickTextGap);
-
                 ctx.beginPath();
                 ctx.moveTo(x, layout.plotY + layout.plotH);
                 ctx.lineTo(x, layout.plotY + layout.plotH + cfg.tickSize);
                 ctx.stroke();
             }
 
-            ctx.fillStyle = cfg.titleTextColor;
-            ctx.font = cfg.titleFont;
-            ctx.fillText(
-                instance.config.xAxisTitle,
-                layout.plotX + layout.plotW / 2,
-                rect.height - cfg.padding - cfg.xTitleBottomGap
-            );
+            ctx.fillStyle = instance.theme.titleTextColor;
+            ctx.font = instance.theme.titleFont;
+            ctx.fillText(instance.config.xAxisTitle, layout.plotX + layout.plotW / 2, rect.height - cfg.padding - cfg.xTitleBottomGap);
         }
 
         function drawLegend(instance, layout) {
@@ -254,29 +232,23 @@
 
             ctx.textAlign = "left";
             ctx.textBaseline = "middle";
-            ctx.fillStyle = cfg.titleTextColor;
-            ctx.font = cfg.titleFont;
+            ctx.fillStyle = instance.theme.titleTextColor;
+            ctx.font = instance.theme.titleFont;
             ctx.fillText("Legend", x, y + cfg.legendTitleYOffset);
 
             y += cfg.legendItemsYOffset;
-            ctx.font = cfg.axisFont;
+            ctx.font = instance.theme.axisFont;
 
             for (let i = colors.length - 1; i >= 0; i--) {
                 const color = colors[i];
-
                 ctx.fillStyle = `rgb(${color.r}, ${color.g}, ${color.b})`;
                 ctx.fillRect(x, y, cfg.legendBoxSize, cfg.legendBoxSize);
 
-                ctx.strokeStyle = cfg.legendBorderColor;
+                ctx.strokeStyle = instance.theme.legendBorderColor;
                 ctx.strokeRect(x, y, cfg.legendBoxSize, cfg.legendBoxSize);
 
-                ctx.fillStyle = cfg.axisTextColor;
-                ctx.fillText(
-                    getLegendLabel(colors, i),
-                    x + cfg.legendTextXOffset,
-                    y + cfg.legendBoxSize / 2
-                );
-
+                ctx.fillStyle = instance.theme.axisTextColor;
+                ctx.fillText(getLegendLabel(colors, i), x + cfg.legendTextXOffset, y + cfg.legendBoxSize / 2);
                 y += cfg.legendRowHeight;
             }
         }
@@ -287,7 +259,8 @@
 
             if (layout.plotW <= 0 || layout.plotH <= 0) return;
 
-            setAxisStyle(instance.ctx);
+            instance.theme = extractTheme(instance.canvas);
+            setAxisStyle(instance);
             drawHeatmap(instance, layout);
             drawYAxis(instance, layout);
             drawXAxis(instance, layout, rect);
@@ -298,7 +271,6 @@
             for (let i = 0; i < values.length; i++) {
                 const color = getColor(values[i], colors);
                 const offset = i * 4;
-
                 pixels[offset] = color.r;
                 pixels[offset + 1] = color.g;
                 pixels[offset + 2] = color.b;
@@ -311,10 +283,8 @@
 
             canvas.addEventListener("wheel", event => {
                 event.preventDefault();
-
                 instance.zoom *= event.deltaY < 0 ? cfg.zoomStep : 1 / cfg.zoomStep;
                 instance.zoom = Math.max(cfg.minZoom, Math.min(cfg.maxZoom, instance.zoom));
-
                 requestAnimationFrame(() => draw(instance));
             }, { passive: false });
 
@@ -354,22 +324,16 @@
 
         return {
             init(canvas, config) {
+                if (!canvas) return;
                 const offscreen = document.createElement("canvas");
 
                 const instance = {
-                    canvas,
-                    config,
-                    offscreen,
+                    canvas, config, offscreen,
                     offscreenCtx: offscreen.getContext("2d"),
                     ctx: canvas.getContext("2d", { alpha: false, desynchronized: true }),
-                    dataW: 0,
-                    dataH: 0,
-                    viewX: 0,
-                    viewY: 0,
-                    zoom: 1,
-                    isPanning: false,
-                    lastMouseX: 0,
-                    lastMouseY: 0
+                    theme: extractTheme(canvas),
+                    dataW: 0, dataH: 0, viewX: 0, viewY: 0, zoom: 1,
+                    isPanning: false, lastMouseX: 0, lastMouseY: 0
                 };
 
                 instance.observer = new ResizeObserver(() => requestAnimationFrame(() => draw(instance)));
@@ -382,42 +346,46 @@
             },
 
             async render(canvas, streamRef, width, height) {
+                if (!canvas) return;
                 const instance = instances.get(canvas);
                 if (!instance) return;
 
-                const values = new Float64Array(await streamRef.arrayBuffer());
+                try {
+                    const buffer = await streamRef.arrayBuffer();
+                    const values = new Float64Array(buffer);
 
-                if (instance.offscreen.width !== width || instance.offscreen.height !== height) {
-                    instance.offscreen.width = width;
-                    instance.offscreen.height = height;
+                    if (instance.offscreen.width !== width || instance.offscreen.height !== height) {
+                        instance.offscreen.width = width;
+                        instance.offscreen.height = height;
+                    }
+
+                    const image = new ImageData(width, height);
+                    writePixels(values, image.data, instance.config.colors);
+
+                    instance.offscreenCtx.putImageData(image, 0, 0);
+                    instance.dataW = width;
+                    instance.dataH = height;
+
+                    requestAnimationFrame(() => draw(instance));
+                } catch (err) {
+                    // Stream may be aborted if component is disposed mid-flight
                 }
-
-                const image = new ImageData(width, height);
-                writePixels(values, image.data, instance.config.colors);
-
-                instance.offscreenCtx.putImageData(image, 0, 0);
-                instance.dataW = width;
-                instance.dataH = height;
-
-                requestAnimationFrame(() => draw(instance));
             },
 
             clear(canvas) {
+                if (!canvas) return;
                 const instance = instances.get(canvas);
                 if (!instance) return;
 
-                instance.dataW = 0;
-                instance.dataH = 0;
-                instance.viewX = 0;
-                instance.viewY = 0;
-                instance.zoom = 1;
-                instance.offscreen.width = 0;
-                instance.offscreen.height = 0;
+                instance.dataW = 0; instance.dataH = 0;
+                instance.viewX = 0; instance.viewY = 0; instance.zoom = 1;
+                instance.offscreen.width = 0; instance.offscreen.height = 0;
 
                 requestAnimationFrame(() => draw(instance));
             },
 
             dispose(canvas) {
+                if (!canvas) return;
                 const instance = instances.get(canvas);
                 if (!instance) return;
 
@@ -443,6 +411,7 @@
     private byte[] _buffer = [];
     private bool _busy;
     private bool _dirty;
+    private bool _isDisposed;
 
     protected override bool ShouldRender() => false;
 
@@ -450,10 +419,9 @@
     {
         if (!firstRender) return;
 
-        if (Colors.Count == 0)
-            throw new InvalidOperationException("At least one heat map color must be provided.");
+        ValidateColors(Colors);
 
-        await JS.InvokeVoidAsync("HeatMap.init", _canvasRef, new
+        await SafeInvokeVoidAsync("HeatMap.init", _canvasRef, new
         {
             colors = Colors,
             xAxisTitle = XAxisTitle,
@@ -463,7 +431,7 @@
 
     public async Task RefreshAsync()
     {
-        if (_busy)
+        if (_busy || _isDisposed)
         {
             _dirty = true;
             return;
@@ -478,7 +446,7 @@
                 _dirty = false;
                 await RenderLatestAsync();
             }
-            while (_dirty);
+            while (_dirty && !_isDisposed);
         }
         finally
         {
@@ -486,17 +454,48 @@
         }
     }
 
+    private static int ValidateAndGetWidth(IReadOnlyList<IReadOnlyList<double>> data)
+    {
+        if (data.Count == 0) return 0;
+        var width = data[0].Count;
+
+        if (width == 0)
+            throw new InvalidOperationException("HeatMap rows must contain at least one value.");
+
+        for (var row = 1; row < data.Count; row++)
+        {
+            if (data[row].Count != width)
+                throw new InvalidOperationException("HeatMap data must be rectangular. Every row must have the same number of values.");
+        }
+
+        return width;
+    }
+
+    private static void ValidateColors(IReadOnlyList<ColorStop> colors)
+    {
+        if (colors.Count == 0)
+            throw new InvalidOperationException("At least one heat map color must be provided.");
+
+        for (var i = 1; i < colors.Count; i++)
+        {
+            if (colors[i].Threshold <= colors[i - 1].Threshold)
+                throw new InvalidOperationException("HeatMap color thresholds must be strictly increasing.");
+        }
+    }
+
     private async Task RenderLatestAsync()
     {
+        if (_isDisposed) return;
+
         var height = Data.Count;
+        var width = ValidateAndGetWidth(Data);
 
         if (height == 0)
         {
-            await JS.InvokeVoidAsync("HeatMap.clear", _canvasRef);
+            await SafeInvokeVoidAsync("HeatMap.clear", _canvasRef);
             return;
         }
-
-        var width = Data[0].Count;
+        
         var byteCount = width * height * BytesPerDouble;
 
         if (_buffer.Length < byteCount)
@@ -519,16 +518,24 @@
         using var stream = new MemoryStream(_buffer, 0, byteCount, writable: false);
         using var streamRef = new DotNetStreamReference(stream);
 
-        await JS.InvokeVoidAsync("HeatMap.render", _canvasRef, streamRef, width, height);
+        await SafeInvokeVoidAsync("HeatMap.render", _canvasRef, streamRef, width, height);
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (_isDisposed) return;
+        _isDisposed = true;
+        await SafeInvokeVoidAsync("HeatMap.dispose", _canvasRef);
+    }
+
+    private async Task SafeInvokeVoidAsync(string identifier, params object?[] args)
+    {
+        if (_isDisposed) return;
         try
         {
-            await JS.InvokeVoidAsync("HeatMap.dispose", _canvasRef);
+            await JS.InvokeVoidAsync(identifier, args);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or JSDisconnectedException)
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException or ObjectDisposedException)
         {
         }
     }
