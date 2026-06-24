@@ -1,0 +1,10 @@
+    private readonly List<HeatMap.ColorStop> _colors = new()
+    {
+        new(100, 30, 64, 175),
+        new(200, 37, 99, 235),
+        new(300, 6, 182, 212),
+        new(400, 34, 197, 94),
+        new(500, 234, 179, 8),
+        new(600, 249, 115, 22),
+        new(double.MaxValue, 239, 68, 68)
+    };
