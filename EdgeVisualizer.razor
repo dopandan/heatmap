@@ -1,110 +1,81 @@
 <div class="edge-visualizer @Class">
-    
-    <!-- Header -->
+
     <div class="edge-visualizer__header">
-        
-        <!-- Title -->
-        <div class="edge-visualizer__title">
-            @Title
-        </div>
-
-        <!-- Edge Controls -->
-        @if (_edges.Count > 0)
+        @if (CurrentEdge != null)
         {
-            <div class="edge-visualizer__controls">
-
-                @* Prev Edge *@
-                <button
-                    class="edge-visualizer__button"
-                    type="button"
-                    disabled="@IsPrevEdgeDisabled"
-                    @onclick="HandlePrevEdgeClicked">
-                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24">
-                        <line x1="6" y1="4" x2="6" y2="20"></line>
-                        <polyline points="18 4 8 12 18 20"></polyline>
-                    </svg>
-                    Older
-                </button>
-
-                @* Edge Timestamp *@
-                <time class="edge-visualizer__timestamp" datetime="@CurrentEdge?.Timestamp">
-                    @CurrentEdge?.Timestamp
-                </time>
-
-                 @* Next Edge *@
-                <button
-                    class="edge-visualizer__button"
-                    type="button"
-                    disabled="@IsNextEdgeDisabled"
-                    @onclick="HandleNextEdgeClicked">
-                    Newer
-                    <svg class="edge-visualizer__icon" viewBox="0 0 24 24">
-                        <polyline points="6 4 16 12 6 20"></polyline>
-                        <line x1="18" y1="4" x2="18" y2="20"></line>
-                    </svg>
-                </button>
-                
-            </div>
+            <time class="edge-visualizer__timestamp"
+                  datetime="@CurrentEdge.Timestamp">
+                Timestamp: @CurrentEdge.Timestamp
+            </time>
         }
     </div>
 
-    <!-- Body -->
     <div class="edge-visualizer__body">
-        
-        @* Edge Graph *@
         @if (CurrentEdge != null && _edges.Count > 0)
         {
             <svg class="edge-visualizer__graph">
-                <line class="edge-visualizer__axis" x1="5%" y1="50%" x2="95%" y2="50%" />
-                
-                @* Left Edge *@
+
+                <line class="edge-visualizer__axis"
+                      x1="@($"{AxisStartPercent}%")"
+                      y1="50%"
+                      x2="@($"{AxisEndPercent}%")"
+                      y2="50%" />
+
                 @if (CurrentEdge.OpenSide is OpenSide.Left or OpenSide.Both)
                 {
-                    <g class="edge-visualizer__group">
-                        <circle class="edge-visualizer__point edge-visualizer__point--left" cx="@GetXAxisPercent(CurrentEdge.OpenLeftX)%" cy="50%" r="8" />
-                        <text class="edge-visualizer__label edge-visualizer__label--left" x="@GetXAxisPercent(CurrentEdge.OpenLeftX)%" y="35%">
+                    <g>
+                        <circle class="edge-visualizer__point edge-visualizer__point--left"
+                                cx="@($"{GetXAxisPercent(CurrentEdge.OpenLeftX)}%")"
+                                cy="50%"
+                                r="8" />
+
+                        <text class="edge-visualizer__label edge-visualizer__label--left"
+                              x="@($"{GetXAxisPercent(CurrentEdge.OpenLeftX)}%")"
+                              y="35%"
+                              text-anchor="@GetTextAnchor(CurrentEdge.OpenLeftX)">
                             L: @CurrentEdge.OpenLeftX.ToString("0.0")
                         </text>
                     </g>
                 }
-                
-                @* Right Edge *@
+
                 @if (CurrentEdge.OpenSide is OpenSide.Right or OpenSide.Both)
                 {
-                    <g class="edge-visualizer__group">
-                        <circle class="edge-visualizer__point edge-visualizer__point--right" cx="@GetXAxisPercent(CurrentEdge.OpenRightX)%" cy="50%" r="8" />
-                        <text class="edge-visualizer__label edge-visualizer__label--right" x="@GetXAxisPercent(CurrentEdge.OpenRightX)%" y="70%">
+                    <g>
+                        <circle class="edge-visualizer__point edge-visualizer__point--right"
+                                cx="@($"{GetXAxisPercent(CurrentEdge.OpenRightX)}%")"
+                                cy="50%"
+                                r="8" />
+
+                        <text class="edge-visualizer__label edge-visualizer__label--right"
+                              x="@($"{GetXAxisPercent(CurrentEdge.OpenRightX)}%")"
+                              y="70%"
+                              text-anchor="@GetTextAnchor(CurrentEdge.OpenRightX)">
                             R: @CurrentEdge.OpenRightX.ToString("0.0")
                         </text>
                     </g>
                 }
-                
+
             </svg>
         }
-        
     </div>
 </div>
 
 <style>
     .edge-visualizer {
-        /* Color Theme */
         --edge-visualizer-bg: #ffffff;
         --edge-visualizer-header-bg: #f8fafc;
         --edge-visualizer-axis: #e2e8f0;
         --edge-visualizer-text: #0f172a;
-        --edge-visualizer-muted: #64748b;;
+        --edge-visualizer-muted: #64748b;
         --edge-visualizer-left: #ef4444;
         --edge-visualizer-right: #3b82f6;
 
+        width: 100%;
+        height: 100%;
         display: flex;
         flex-direction: column;
 
-        width: 100%;
-        height: 100%;
-        min-width: min-content;
-
         background: var(--edge-visualizer-bg);
-
         color: var(--edge-visualizer-text);
     }
 
@@ -115,84 +86,32 @@
         gap: 0.75rem;
 
         padding: 0.75rem 1rem;
-
         background: var(--edge-visualizer-header-bg);
     }
 
     .edge-visualizer__title {
-        margin: 0;
-
         font-size: 1rem;
         font-weight: 600;
     }
 
-    .edge-visualizer__controls {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-    }
-
-    .edge-visualizer__button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 0.375rem;
-
-        padding: 0.25rem 0.75rem;
-
-        background: var(--edge-visualizer-bg);
-
-        color: var(--edge-visualizer-text);
-        font-size: 0.875rem;
-
-        cursor: pointer;
-        transition: background-color 120ms ease;
-    }
-
-    .edge-visualizer__button:hover:not(:disabled) {
-        background: var(--edge-visualizer-accent-hover);
-    }
-
-    .edge-visualizer__button:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-    }
-
-    .edge-visualizer__icon {
-        width: 1rem;
-        height: 1rem;
-
-        fill: none;
-        stroke: currentColor;
-        stroke-width: 2px;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-    }
-
     .edge-visualizer__timestamp {
-        min-width: 6rem;
-
         color: var(--edge-visualizer-muted);
         font-size: 0.875rem;
         font-weight: 600;
-        text-align: center;
+        text-align: left;
     }
 
     .edge-visualizer__body {
         flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        min-height: 150px;
+        min-height: 0;
         padding: 1rem;
     }
 
     .edge-visualizer__graph {
-        display: block;
-
         width: 100%;
         height: 100%;
+        display: block;
+        overflow: visible;
     }
 
     .edge-visualizer__axis {
@@ -211,7 +130,6 @@
     .edge-visualizer__label {
         font-size: 0.875rem;
         font-weight: 600;
-        text-anchor: middle;
     }
 
     .edge-visualizer__label--left {
@@ -224,53 +142,46 @@
 </style>
 
 @code {
-    public enum OpenSide { None, Left, Right, Both }
+    public enum OpenSide
+    {
+        None,
+        Left,
+        Right,
+        Both
+    }
 
     public class DetectedEdge
     {
         public OpenSide OpenSide { get; set; } = OpenSide.None;
-        public double OpenLeftX { get; set; } = -1; 
+        public double OpenLeftX { get; set; } = -1;
         public double OpenRightX { get; set; } = -1;
         public string Timestamp { get; set; } = string.Empty;
     }
 
-    [Parameter] public string Title { get; set; } = "Edge Stream";
     [Parameter] public IEnumerable<DetectedEdge> Data { get; set; } = Array.Empty<DetectedEdge>();
     [Parameter] public string? Class { get; set; }
+    [Parameter] public DetectedEdge? CurrentEdge { get; set; }
+    [Parameter] public EventCallback<DetectedEdge?> CurrentEdgeChanged { get; set; }
+
+    private const double AxisStartPercent = 8;
+    private const double AxisEndPercent = 92;
 
     private List<DetectedEdge> _edges = new();
-    private int _currentEdgeIndex = -1;
-    
     private double _minX;
     private double _maxX;
 
-    private DetectedEdge? CurrentEdge 
-    {
-        get 
-        {
-            bool isValidIndex = _currentEdgeIndex >= 0 && _currentEdgeIndex < _edges.Count;
-            return isValidIndex ? _edges[_currentEdgeIndex] : null;
-        }
-    }
-
-    private bool IsPrevEdgeDisabled => _currentEdgeIndex <= 0;
-    private bool IsNextEdgeDisabled => _currentEdgeIndex >= _edges.Count - 1;
-
     protected override void OnParametersSet()
     {
-        if (Data == null) return;
-
-        _edges = Data.Where(p => p.OpenSide != OpenSide.None).ToList();
-
-        if (_edges.Count == 0)
+        if (Data == null)
         {
-            _currentEdgeIndex = -1;
             return;
         }
 
+        _edges = Data
+            .Where(edge => edge.OpenSide != OpenSide.None)
+            .ToList();
+
         CalculateXAxisBoundaries();
-        
-        _currentEdgeIndex = 0;
     }
 
     private void CalculateXAxisBoundaries()
@@ -278,14 +189,20 @@
         _minX = double.MaxValue;
         _maxX = double.MinValue;
 
-        foreach (var edge in _edges)
+        var boundsList = new List<DetectedEdge>(_edges);
+        if (CurrentEdge != null && !boundsList.Any(e => e.Timestamp == CurrentEdge.Timestamp))
+        {
+            boundsList.Add(CurrentEdge);
+        }
+
+        foreach (var edge in boundsList)
         {
             if (edge.OpenSide is OpenSide.Left or OpenSide.Both)
             {
                 _minX = Math.Min(_minX, edge.OpenLeftX);
                 _maxX = Math.Max(_maxX, edge.OpenLeftX);
             }
-            
+
             if (edge.OpenSide is OpenSide.Right or OpenSide.Both)
             {
                 _minX = Math.Min(_minX, edge.OpenRightX);
@@ -300,15 +217,35 @@
         }
     }
 
-    private void HandlePrevEdgeClicked() { if (!IsPrevEdgeDisabled) _currentEdgeIndex--; }
-    private void HandleNextEdgeClicked() { if (!IsNextEdgeDisabled) _currentEdgeIndex++; }
-
-    private double GetXAxisPercent(double val)
+    private double GetXAxisPercent(double value)
     {
-        double range = _maxX - _minX;
-        
-        if (range <= 0) return 50;
-        
-        return ((val - _minX) / range) * 100;
+        var range = _maxX - _minX;
+
+        if (range <= 0)
+        {
+            return 50;
+        }
+
+        var normalized = (value - _minX) / range;
+        normalized = Math.Clamp(normalized, 0, 1);
+
+        return AxisStartPercent + normalized * (AxisEndPercent - AxisStartPercent);
+    }
+
+    private string GetTextAnchor(double value)
+    {
+        var x = GetXAxisPercent(value);
+
+        if (x <= AxisStartPercent + 4)
+        {
+            return "start";
+        }
+
+        if (x >= AxisEndPercent - 4)
+        {
+            return "end";
+        }
+
+        return "middle";
     }
 }
