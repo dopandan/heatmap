@@ -463,8 +463,16 @@
         {
             var tick = scan.Ticks[i];
 
-            if (isLeft && tick.Side != OpenSide.Left && tick.Side != OpenSide.Both) continue;
-            if (!isLeft && tick.Side != OpenSide.Right && tick.Side != OpenSide.Both) continue;
+            if (isLeft && tick.Side != OpenSide.Left && tick.Side != OpenSide.Both)
+            {
+                first = true;
+                continue;
+            }
+            if (!isLeft && tick.Side != OpenSide.Right && tick.Side != OpenSide.Both)
+            {
+                first = true;
+                continue;
+            }
 
             double val = isLeft ? tick.Opulent : tick.OpenRightX;
             
