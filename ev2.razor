@@ -1,0 +1,523 @@
+@using System.Text
+
+<!-- Shared SVG Assets: Diagonal hatch pattern for invalid plot regions -->
+<svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
+    <defs>
+        <pattern id="diagonalHatch" 
+                 width="@HatchPatternSize" 
+                 height="@HatchPatternSize" 
+                 patternTransform="rotate(45)" 
+                 patternUnits="userSpaceOnUse">
+            <line x1="0" y1="0" x2="0" y2="@HatchPatternSize" stroke="#cccccc" stroke-width="@HatchStrokeWidth" />
+        </pattern>
+    </defs>
+</svg>
+
+<div class="edge-visualizer">
+    <div class="edge-visualizer__dashboard">
+        <!-- Header Row -->
+        <div class="edge-visualizer__dashboard__header-cell" style="grid-column: 1; grid-row: 1;">Scan</div>
+        <div class="edge-visualizer__dashboard__header-cell" style="grid-column: 2; grid-row: 1;">Edge Plot</div>
+        <div class="edge-visualizer__dashboard__header-cell" style="grid-column: 3; grid-row: 1;">Legend</div>
+
+        @if (_scansToRender == null || _scansToRender.Count == 0)
+        {
+            <!-- Fallback state -->
+            <div class="edge-visualizer__dashboard__empty-state" style="grid-column: 1 / span 3; grid-row: 2;">
+                No scan data available.
+            </div>
+        }
+
+        <!-- Content Row -->
+        else
+        {
+            @for (int i = 0; i < _scansToRender.Count; i++)
+            {
+                var index = i;
+                var scan = _scansToRender[index];
+                var rangeY = _maxYRanges[index];
+                var r = index + 2; 
+
+                <!-- Left Column: Scan Index -->
+                <div class="edge-visualizer__dashboard__scan-info" style="grid-column: 1; grid-row: @r;">
+                    <span class="edge-visualizer__dashboard__scan-number">@(index + 1)</span>
+                    <span class="edge-visualizer__dashboard__scan-range">±@FormatValue(rangeY)</span>
+                </div>
+
+                <!-- Middle Column: Edge Plot -->
+                <div class="edge-visualizer__dashboard__plot-container" style="grid-column: 2; grid-row: @r;">
+                    <svg class="edge-visualizer__dashboard__plot-svg" viewBox="0 0 @SvgWidth @SvgHeight">
+                        
+                        <!-- Hatch Pattern -->
+                        @if (scan.Ticks != null && scan.Ticks.Count < _globalMaxTicks)
+                        {
+                            var startX = GetInvalidRegionStart(scan, _globalMaxTicks);
+                            var w = PlotRightBoundary - startX;
+                            <rect x="@startX" y="@PlotTopBoundary" width="@w" height="@PlotHeight" fill="var(--invalid-bg)" />
+                            <rect x="@startX" y="@PlotTopBoundary" width="@w" height="@PlotHeight" fill="url(#diagonalHatch)" />
+                            <line x1="@startX" y1="@PlotTopBoundary" x2="@startX" y2="@PlotBottomBoundary" stroke="#bcbcbc" stroke-dasharray="3,3" />
+                        }
+
+                        <!-- Y-Axis -->
+                        <line x1="@PlotLeftPadding" y1="@PlotTopBoundary" x2="@PlotLeftPadding" y2="@PlotBottomBoundary" stroke="#808080" />
+                        
+                        <!-- X-Axis -->
+                        <line x1="@PlotLeftPadding" y1="@PlotBottomBoundary" x2="@PlotRightBoundary" y2="@PlotBottomBoundary" stroke="#808080" />
+
+                        <!-- Horizontal Division Lines -->
+                        @for (int j = 0; j < TotalTicksToDraw; j++)
+                        {
+                            double y = PlotTopBoundary + (j * VerticalTickSpacing);
+                            double val = rangeY - (j * rangeY / NeutralAxisTickIndex);
+                            
+                            <!-- Gridline -->
+                            <line x1="@PlotLeftPadding" y1="@y" x2="@PlotRightBoundary" y2="@y" stroke="@(j == (int)NeutralAxisTickIndex ? "#808080" : "var(--grid-line)")" stroke-dasharray="@(j % 2 != 0 ? "2,2" : null)" />
+                            
+                            <!-- Axis divisions -->
+                            <line x1="@(PlotLeftPadding - YTickMarkLeftOffset)" y1="@y" x2="@PlotLeftPadding" y2="@y" stroke="#808080" />
+                            
+                            <!-- Text tags -->
+                            <g><text x="@(PlotLeftPadding - YLabelXOffset)" y="@(y + YLabelYAlignmentOffset)" text-anchor="end" class="edge-visualizer__dashboard__tick-text">@FormatValue(val)</text></g>
+                        }
+
+                        <!-- Y-Axis Label -->
+                        <g><text x="@YTitleXOffset" y="@YTitleYOffset" text-anchor="middle" transform="rotate(-90 @YTitleXOffset @YTitleYOffset)" class="edge-visualizer__dashboard__axis-title">X Coordinate</text></g>
+
+                        <!-- Vertical Division Lines -->
+                        @for (int j = 0; j < TotalTicksToDraw; j++)
+                        {
+                            double pct = j * XTickSpacingPercent;
+                            double x = PlotLeftPadding + (pct * PlotWidth);
+                            int indexVal = (int)Math.Round(pct * (_globalMaxTicks - 1));
+
+                            <!-- Gridline -->
+                            <line x1="@x" y1="@PlotTopBoundary" x2="@x" y2="@PlotBottomBoundary" stroke="var(--grid-line)" stroke-dasharray="2,2" />
+                            
+                            <!-- Axis divisions -->
+                            <line x1="@x" y1="@PlotBottomBoundary" x2="@x" y2="@(PlotBottomBoundary + YTickMarkLeftOffset)" stroke="#808080" />
+                            
+                            <!-- Text tags -->
+                            <g><text x="@x" y="@(PlotBottomBoundary + YLabelXOffset + YLabelYAlignmentOffset)" text-anchor="middle" class="edge-visualizer__dashboard__tick-text">@indexVal</text></g>
+                        }
+
+                        <!-- X-Axis Label -->
+                        <g><text x="@XTitleXOffset" y="@XTitleYOffset" text-anchor="middle" class="edge-visualizer__dashboard__axis-title">Payload Index</text></g>
+
+                        <!-- Plot Vectors -->
+                        @if (scan.Ticks != null && scan.Ticks.Count > 0)
+                        {
+                            var lp = GetPathData(scan, rangeY, _globalMaxTicks, true);
+                            var rp = GetPathData(scan, rangeY, _globalMaxTicks, false);
+
+                            @if (!string.IsNullOrEmpty(lp))
+                            {
+                                <path d="@lp" fill="none" stroke="var(--accent-left)" stroke-width="@PathStrokeWidth" stroke-linejoin="round" />
+                            }
+                            @if (!string.IsNullOrEmpty(rp))
+                            {
+                                <path d="@rp" fill="none" stroke="var(--accent-right)" stroke-width="@PathStrokeWidth" stroke-linejoin="round" />
+                            }
+                        }
+                    </svg>
+                </div>
+            }
+
+            <!-- Right Column: Legend -->
+            <div class="edge-visualizer__dashboard__legend" style="grid-column: 3; grid-row: 2 / span @_scansToRender.Count;">
+                <div class="edge-visualizer__dashboard__legend-item">
+                    <span class="edge-visualizer__dashboard__legend-indicator edge-visualizer__dashboard__legend-indicator--left"></span>
+                    <span class="edge-visualizer__dashboard__legend-label">Left</span>
+                </div>
+                <div class="edge-visualizer__dashboard__legend-item">
+                    <span class="edge-visualizer__dashboard__legend-indicator edge-visualizer__dashboard__legend-indicator--right"></span>
+                    <span class="edge-visualizer__dashboard__legend-label">Right</span>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .edge-visualizer__dashboard, .edge-visualizer__dashboard * {
+        box-sizing: border-box;
+    }
+
+    .edge-visualizer {
+        display: block;
+
+        width: 100%;
+        max-height: 550px; 
+
+        overflow-y: auto;
+    }
+
+    .edge-visualizer__dashboard {
+        /* Color Theme */
+        --panel-bg: #f4f4f4;
+        --panel-header-bg: #e5e5e5;
+        --plot-bg: #ffffff;
+        --border-color: #a0a0a0;
+        --text-color: #1a1a1a;
+        --text-muted: #5e5e5e;
+        --accent-left: #c62828;
+        --accent-right: #1565c0;
+        --invalid-bg: #ebebeb;
+        --grid-line: #e5e5e5;
+
+        display: grid;
+        grid-template-columns: 80px minmax(300px, 1fr) 120px;
+        gap: 1px;
+
+        width: 100%;
+        min-width: 0;
+
+        border: 1px solid var(--border-color);
+
+        background: var(--border-color);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .edge-visualizer__dashboard__header-cell {
+        /* Layout */
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        height: 32px;
+
+        padding: 0 0.5rem;
+
+        background: var(--panel-header-bg);
+        border-bottom: 1px solid var(--border-color);
+
+        color: var(--text-color);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        text-align: center;
+    }
+
+    .edge-visualizer__dashboard__scan-info {
+        /* Layout */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+
+        /* Sizing */
+        width: 100%;
+        height: 100%;
+
+        /* Box Model */
+        padding: 0.75rem;
+
+        /* Visual */
+        background: var(--panel-bg);
+    }
+
+    .edge-visualizer__dashboard__scan-number {
+        line-height: 1;
+
+        color: var(--text-color);
+        font-family: Consolas, "Lucida Console", Monaco, monospace;
+        font-size: 2rem;
+        font-weight: 700;
+    }
+
+    .edge-visualizer__dashboard__scan-range {
+        color: var(--text-muted);
+        font-family: Consolas, "Lucida Console", Monaco, monospace;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .edge-visualizer__dashboard__plot-container {
+        display: block;
+
+        width: 100%;
+        height: 100%;
+
+        background: var(--plot-bg);
+    }
+
+    .edge-visualizer__dashboard__plot-svg {
+        display: block;
+
+        width: 100%;
+        height: auto;
+        max-height: 240px;
+    }
+
+    .edge-visualizer__dashboard__legend {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+
+        width: 100%;
+        height: 100%;
+
+        padding: 1rem;
+
+        background: var(--panel-bg);
+    }
+
+    .edge-visualizer__dashboard__legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+
+        width: 100%;
+        max-width: 80px;
+    }
+
+    .edge-visualizer__dashboard__legend-indicator {
+        width: 16px;
+        height: 4px;
+
+        border-radius: 1px;
+    }
+
+    .edge-visualizer__dashboard__legend-indicator--left {
+        background: var(--accent-left);
+    }
+
+    .edge-visualizer__dashboard__legend-indicator--right {
+        background: var(--accent-right);
+    }
+
+    .edge-visualizer__dashboard__legend-label {
+        color: var(--text-color);
+        font-size: 0.8125rem;
+        font-weight: 600;
+    }
+
+    /* Telemetry Grid Text and Label Styles */
+    .edge-visualizer__dashboard__tick-text {
+        color: var(--text-muted);
+        fill: var(--text-muted);
+        font-family: Consolas, "Lucida Console", Monaco, monospace;
+        font-size: 10px;
+        font-weight: 500;
+    }
+
+    .edge-visualizer__dashboard__axis-title {
+        color: var(--text-color);
+        fill: var(--text-color);
+        font-size: 11px;
+        font-weight: 600;
+        user-select: none;
+    }
+
+    .edge-visualizer__dashboard__empty-state {
+        width: 100%;
+
+        padding: 3rem;
+
+        background: var(--plot-bg);
+
+        color: var(--text-muted);
+        text-align: center;
+        font-size: 0.875rem;
+    }
+</style>
+
+@code {
+    [Parameter] public List<EdgeScan>? Scans { get; set; }
+
+    // --- Viewport Layout Constants ---
+    private const double SvgWidth = 800.0;
+    private const double SvgHeight = 240.0; 
+    private const double PlotLeftPadding = 60.0;
+    private const double PlotRightPadding = 20.0;
+    private const double PlotTopPadding = 20.0;
+    private const double PlotBottomPadding = 40.0; 
+
+    private const double PlotWidth = SvgWidth - PlotLeftPadding - PlotRightPadding; // 720.0
+    private const double PlotHeight = SvgHeight - PlotTopPadding - PlotBottomPadding; // 180.0
+    private const double PlotCenterY = PlotTopPadding + (PlotHeight / 2.0); // 110.0
+    private const double PlotHalfHeight = PlotHeight / 2.0; // 90.0
+    
+    private const double PlotRightBoundary = SvgWidth - PlotRightPadding; // 780.0
+    private const double PlotBottomBoundary = SvgHeight - PlotBottomPadding; // 200.0
+    private const double PlotTopBoundary = PlotTopPadding; // 20.0
+
+    private const double YTickMarkLeftOffset = 5.0; 
+    private const double YLabelXOffset = 10.0; 
+    private const double YLabelYAlignmentOffset = 4.0; 
+    
+    private const double YTitleXOffset = 18.0;
+    private const double YTitleYOffset = PlotCenterY; 
+    
+    private const double XTitleXOffset = PlotLeftPadding + (PlotWidth / 2.0); // 420.0
+    private const double XTitleYOffset = SvgHeight - 6.0; // 234.0 
+
+    private const int TotalTicksToDraw = 5;
+    private const double VerticalTickSpacing = PlotHeight / (TotalTicksToDraw - 1); // 45.0
+    private const double XTickSpacingPercent = 1.0 / (TotalTicksToDraw - 1); // 0.25
+    private const double NeutralAxisTickIndex = 2.0; 
+
+    private const double PathStrokeWidth = 1.5;
+    private const int HatchPatternSize = 10;
+    private const int HatchStrokeWidth = 2;
+
+    // --- Math & Range Constants ---
+    private const double FallbackYRange = 10.0;
+    private const double RatioLimitOne = 1.0;
+    private const double RatioLimitTwo = 2.0;
+    private const double RatioLimitFive = 5.0;
+    private const double CleanRatioDefault = 10.0;
+    
+    private const double DecimalRoundingTolerance = 0.0001;
+    private const int FallbackTicksCount = 10;
+
+    private List<EdgeScan> _scansToRender = new();
+    private List<double> _maxYRanges = new();
+    private int _globalMaxTicks = FallbackTicksCount;
+
+    protected override void OnParametersSet()
+    {
+        _scansToRender.Clear();
+        _maxYRanges.Clear();
+
+        if (Scans != null && Scans.Count > 0)
+        {
+            foreach (var s in Scans)
+            {
+                _scansToRender.Add(s);
+            }
+        }
+
+        if (_scansToRender.Count > 0)
+        {
+            _globalMaxTicks = FallbackTicksCount;
+            foreach (var scan in _scansToRender)
+            {
+                if (scan.Ticks != null && scan.Ticks.Count > _globalMaxTicks)
+                {
+                    _globalMaxTicks = scan.Ticks.Count;
+                }
+            }
+
+            foreach (var scan in _scansToRender)
+            {
+                double localMax = 0;
+                if (scan.Ticks != null)
+                {
+                    foreach (var tick in scan.Ticks)
+                    {
+                        if (tick.Side == OpenSide.Left || tick.Side == OpenSide.Both)
+                        {
+                            if (Math.Abs(tick.Opulent) > localMax)
+                            {
+                                localMax = Math.Abs(tick.Opulent);
+                            }
+                        }
+                        if (tick.Side == OpenSide.Right || tick.Side == OpenSide.Both)
+                        {
+                            if (Math.Abs(tick.OpenRightX) > localMax)
+                            {
+                                localMax = Math.Abs(tick.OpenRightX);
+                            }
+                        }
+                    }
+                }
+                _maxYRanges.Add(GetCleanMaxY(localMax));
+            }
+        }
+        else
+        {
+            _globalMaxTicks = FallbackTicksCount;
+        }
+    }
+
+    private double GetCleanMaxY(double maxVal)
+    {
+        if (maxVal <= 0) return FallbackYRange;
+
+        double log = Math.Log10(maxVal);
+        double power = Math.Pow(10, Math.Floor(log));
+        double ratio = maxVal / power;
+
+        double cleanRatio = CleanRatioDefault;
+        if (ratio <= RatioLimitOne) cleanRatio = RatioLimitOne;
+        else if (ratio <= RatioLimitTwo) cleanRatio = RatioLimitTwo;
+        else if (ratio <= RatioLimitFive) cleanRatio = RatioLimitFive;
+
+        return cleanRatio * power;
+    }
+
+    private string GetPathData(EdgeScan scan, double cleanMaxY, int maxTicks, bool isLeft)
+    {
+        if (scan?.Ticks == null || scan.Ticks.Count == 0 || maxTicks <= 1)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        bool first = true;
+
+        for (int i = 0; i < scan.Ticks.Count; i++)
+        {
+            var tick = scan.Ticks[i];
+
+            if (isLeft && tick.Side != OpenSide.Left && tick.Side != OpenSide.Both) continue;
+            if (!isLeft && tick.Side != OpenSide.Right && tick.Side != OpenSide.Both) continue;
+
+            double val = isLeft ? tick.Opulent : tick.OpenRightX;
+            
+            double xSvg = PlotLeftPadding + ((double)i / (maxTicks - 1)) * PlotWidth;
+            double ySvg = PlotCenterY - (Math.Clamp(val, -cleanMaxY, cleanMaxY) / cleanMaxY) * PlotHalfHeight;
+
+            if (first)
+            {
+                sb.Append($"M {xSvg:F2} {ySvg:F2}");
+                first = false;
+            }
+            else
+            {
+                sb.Append($" L {xSvg:F2} {ySvg:F2}");
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private double GetInvalidRegionStart(EdgeScan scan, int maxTicks)
+    {
+        if (scan?.Ticks == null || scan.Ticks.Count == 0 || maxTicks <= 1)
+            return PlotLeftPadding;
+
+        if (scan.Ticks.Count >= maxTicks)
+            return PlotRightBoundary;
+
+        return PlotLeftPadding + ((double)scan.Ticks.Count / (maxTicks - 1)) * PlotWidth;
+    }
+
+    private string FormatValue(double val)
+    {
+        if (val == 0) return "0";
+        if (Math.Abs(val % 1) < DecimalRoundingTolerance)
+            return val.ToString("F0");
+        return val.ToString("F2");
+    }
+
+    public enum OpenSide { 
+        None, 
+        Left, 
+        Right, 
+        Both 
+    }
+
+    public class EdgeScanTick {
+        public double Opulent { get; set; }
+        public double OpenRightX { get; set; }
+        public OpenSide Side { get; set; }
+    }
+
+    public class EdgeScan {
+        public List<EdgeScanTick> Ticks { get; } = new();
+    }
+}
