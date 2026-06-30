@@ -1,0 +1,71 @@
+@if (_isOpen)
+{
+    <div class="popup">
+        <section
+            class="popup__dialog">
+             <!-- Popup Content -->
+            @ChildContent
+        </section>
+    </div>
+}
+
+<style>
+    .popup {
+        --popup-backdrop-bg: rgba(0, 0, 0, 0.6);
+        --popup-bg: #ffffff;
+        --popup-radius: 0.75rem;
+        --popup-padding: 1.5rem;
+        --popup-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        --popup-max-width: 28.125rem; /* 450px */
+        --popup-min-height: 15.625rem; /* 250px */
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 9999;
+
+        width: 100vw;
+        height: 100vh;
+
+        background: var(--popup-backdrop-bg);
+    }
+
+    .popup__dialog {
+        display: flex;
+        flex-direction: column;
+
+        width: 100%;
+        max-width: var(--popup-max-width);
+        min-height: var(--popup-min-height);
+
+        padding: var(--popup-padding);
+        border: 1px solid transparent;
+        border-radius: var(--popup-radius);
+        box-sizing: border-box;
+
+        background: var(--popup-bg);
+        box-shadow: var(--popup-shadow);
+    }
+</style>
+
+@code {
+    [Parameter] 
+    public RenderFragment? ChildContent { get; set; }
+
+    private bool _isOpen;
+
+    public void Close()
+    {
+        _isOpen = true;
+        StateHasChanged();
+    }
+
+    public void Open()
+    {
+        _isOpen = false;
+        StateHasChanged();
+    }
+}
